@@ -386,7 +386,10 @@ function loadTripStore() {
     if (stored) {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed.trips)) {
-        const trips = parsed.trips.map(normalizeTrip);
+        const trips = dedupeTripList(parsed.trips.map(normalizeTrip), {
+          activeTripKey: parsed.activeTripKey,
+          activeCloudId: parsed.activeCloudId
+        });
         const activeTrips = trips.filter((trip) => !trip.archivedAt);
         const activeTrip =
           activeTrips.find((trip) => trip.localId === parsed.activeTripKey || trip.cloudId === parsed.activeCloudId) ||
@@ -395,6 +398,9 @@ function loadTripStore() {
         const visibleTrips = trips.some((trip) => trip.localId === activeTrip.localId)
           ? trips
           : [...trips, activeTrip];
+        if (visibleTrips.length !== parsed.trips.length) {
+          writeTripStore(activeTrip, visibleTrips);
+        }
         return {
           trips: visibleTrips.length ? visibleTrips : [activeTrip],
           activeTripKey: activeTrip.localId,
@@ -494,6 +500,88 @@ function normalizeTrip(trip) {
   return normalized;
 }
 
+function dedupeTripList(trips, preferred = {}) {
+  const exactOrder = [];
+  const exactMap = new Map();
+
+  trips.forEach((trip) => {
+    const key = trip.cloudId ? `cloud:${trip.cloudId}` : `local:${trip.localId}`;
+    const existing = exactMap.get(key);
+    if (!existing) {
+      exactOrder.push(key);
+      exactMap.set(key, trip);
+      return;
+    }
+    exactMap.set(key, pickDedupeTrip(existing, trip, preferred));
+  });
+
+  const contentOrder = [];
+  const contentMap = new Map();
+  exactOrder.map((key) => exactMap.get(key)).forEach((trip) => {
+    const key = trip.cloudId ? tripContentKey(trip) : `local:${trip.localId}`;
+    const existing = contentMap.get(key);
+    if (!existing) {
+      contentOrder.push(key);
+      contentMap.set(key, trip);
+      return;
+    }
+    contentMap.set(key, pickDedupeTrip(existing, trip, preferred));
+  });
+
+  return contentOrder.map((key) => contentMap.get(key));
+}
+
+function pickDedupeTrip(current, incoming, preferred) {
+  const currentPreferred = isPreferredTrip(current, preferred);
+  const incomingPreferred = isPreferredTrip(incoming, preferred);
+  if (currentPreferred !== incomingPreferred) return incomingPreferred ? incoming : current;
+  if (Boolean(current.archivedAt) !== Boolean(incoming.archivedAt)) return current.archivedAt ? incoming : current;
+
+  const currentScore = tripCompletenessScore(current);
+  const incomingScore = tripCompletenessScore(incoming);
+  return incomingScore >= currentScore ? incoming : current;
+}
+
+function isPreferredTrip(trip, preferred) {
+  return (
+    (preferred.activeTripKey && trip.localId === preferred.activeTripKey) ||
+    (preferred.activeCloudId && trip.cloudId === preferred.activeCloudId) ||
+    (preferred.localId && trip.localId === preferred.localId) ||
+    (preferred.cloudId && trip.cloudId === preferred.cloudId)
+  );
+}
+
+function tripCompletenessScore(trip) {
+  const attachmentCount = (trip.stops || []).reduce((total, stop) => total + (stop.attachments?.length || 0), 0);
+  return (trip.stops?.length || 0) * 10 + attachmentCount + (trip.shareCode ? 2 : 0) + (trip.cloudOwnerId ? 1 : 0);
+}
+
+function tripContentKey(trip) {
+  const stops = [...(trip.stops || [])]
+    .sort((a, b) => {
+      const aKey = `${a.startDate || a.date || ""} ${a.startTime || a.time || ""} ${a.title || ""}`;
+      const bKey = `${b.startDate || b.date || ""} ${b.startTime || b.time || ""} ${b.title || ""}`;
+      return aKey.localeCompare(bKey);
+    })
+    .map((stop) => [
+      stop.title || "",
+      stop.type || "",
+      stop.startDate || stop.date || "",
+      stop.startTime || stop.time || "",
+      stop.endDate || "",
+      stop.endTime || "",
+      stop.zone || ""
+    ].join("|"))
+    .join(";");
+  return [
+    "content",
+    String(trip.name || "").trim().toLowerCase(),
+    trip.originZone || "",
+    trip.destinationZone || "",
+    stops
+  ].join(":");
+}
+
 function createBlankTrip(name = "New Trip") {
   return normalizeTrip({
     name,
@@ -536,17 +624,25 @@ function saveTrip() {
 
 function persistLocalTrip() {
   upsertActiveTripInStore();
+  if (!writeTripStore(state.trip, state.trips)) {
+    showToast("Storage is full. Export JSON before adding more attachments.");
+  }
+}
+
+function writeTripStore(activeTrip, trips) {
   try {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        activeTripKey: state.trip.localId,
-        activeCloudId: state.trip.cloudId || null,
-        trips: state.trips.map(sanitizeTripForLocal)
+        activeTripKey: activeTrip.localId,
+        activeCloudId: activeTrip.cloudId || null,
+        trips: trips.map(sanitizeTripForLocal)
       })
     );
+    return true;
   } catch (error) {
-    showToast("Storage is full. Export JSON before adding more attachments.");
+    console.warn("Unable to write stored trip", error);
+    return false;
   }
 }
 
@@ -557,6 +653,14 @@ function upsertActiveTripInStore() {
   } else {
     state.trips.push(state.trip);
   }
+  state.trips = dedupeTripList(state.trips, {
+    activeTripKey: state.trip.localId,
+    activeCloudId: state.trip.cloudId
+  });
+  state.trip =
+    state.trips.find((trip) => trip.localId === state.trip.localId) ||
+    state.trips.find((trip) => trip.cloudId && trip.cloudId === state.trip.cloudId) ||
+    state.trip;
   state.activeTripKey = state.trip.localId;
 }
 
@@ -656,17 +760,36 @@ function renderAuthGate() {
 }
 
 function renderTripSelect() {
-  const localOptions = state.trips.filter((trip) => !trip.archivedAt).map((trip) => `
+  const visibleLocalTrips = dedupeTripList(state.trips, {
+    activeTripKey: state.trip.localId,
+    activeCloudId: state.trip.cloudId
+  }).filter((trip) => !trip.archivedAt);
+  const localOptions = visibleLocalTrips.map((trip) => `
     <option value="local:${trip.localId}">${escapeHtml(trip.name || "Untitled trip")}</option>
   `);
-  const localCloudIds = new Set(state.trips.filter((trip) => !trip.archivedAt).map((trip) => trip.cloudId).filter(Boolean));
-  const cloudOptions = state.cloud.trips
-    .filter((trip) => !trip.archived_at && !localCloudIds.has(trip.id))
+  const localCloudIds = new Set(visibleLocalTrips.map((trip) => trip.cloudId).filter(Boolean));
+  const localCloudNames = new Set(visibleLocalTrips.filter((trip) => trip.cloudId).map(tripNameKey));
+  const cloudOptions = dedupeCloudTripSummaries(state.cloud.trips)
+    .filter((trip) => !trip.archived_at && !localCloudIds.has(trip.id) && !localCloudNames.has(tripNameKey(trip)))
     .map((trip) => `
       <option value="cloud:${trip.id}">${escapeHtml(trip.name || "Cloud trip")}</option>
     `);
   el.tripSelect.innerHTML = [...localOptions, ...cloudOptions].join("");
   el.tripSelect.value = `local:${state.trip.localId}`;
+}
+
+function dedupeCloudTripSummaries(trips) {
+  const seen = new Set();
+  return trips.filter((trip) => {
+    const key = tripNameKey(trip) || trip.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function tripNameKey(trip) {
+  return String(trip?.name || "").trim().toLowerCase();
 }
 
 function cloudHintText() {
@@ -851,8 +974,15 @@ async function loadCloudTripById(tripId) {
   }
 
   const signedAttachments = await withSignedAttachmentUrls(attachments || []);
+  const matchingLocalTrip = state.trips.find((localTrip) => localTrip.cloudId === trip.id);
+  const cloudTrip = cloudRowsToTrip(trip, stops || [], signedAttachments);
+  if (matchingLocalTrip) {
+    cloudTrip.localId = matchingLocalTrip.localId;
+    cloudTrip.calendarMode = matchingLocalTrip.calendarMode;
+  }
+
   state.cloud.suppressSave = true;
-  state.trip = normalizeTrip(cloudRowsToTrip(trip, stops || [], signedAttachments));
+  state.trip = normalizeTrip(cloudTrip);
   state.activeDay = null;
   persistLocalTrip();
   state.cloud.suppressSave = false;
