@@ -101,6 +101,7 @@ const state = {
   editingId: null,
   activeDay: null,
   toastTimer: null,
+  localAccess: readSessionFlag("itinerary-local-access"),
   cloud: {
     configured: false,
     loading: true,
@@ -133,6 +134,15 @@ document.addEventListener("DOMContentLoaded", () => {
 function cacheElements() {
   [
     "tripSubtitle",
+    "authGate",
+    "authStatus",
+    "authGateMessage",
+    "authGateForm",
+    "authEmail",
+    "authLoginButton",
+    "authSignupButton",
+    "continueLocalButton",
+    "appShell",
     "newTripButton",
     "importButton",
     "exportJsonButton",
@@ -197,6 +207,22 @@ function cacheElements() {
 }
 
 function bindEvents() {
+  el.authGateForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    signInToCloud({ email: el.authEmail.value, shouldCreateUser: false });
+  });
+
+  el.authSignupButton.addEventListener("click", () => {
+    signInToCloud({ email: el.authEmail.value, shouldCreateUser: true });
+  });
+
+  el.continueLocalButton.addEventListener("click", () => {
+    state.localAccess = true;
+    writeSessionFlag("itinerary-local-access", true);
+    renderAuthGate();
+    showToast("Local mode unlocked for this browser.");
+  });
+
   el.tripName.addEventListener("input", (event) => {
     state.trip.name = event.target.value.trim() || "Untitled Iceland Trip";
     saveTrip();
@@ -234,7 +260,7 @@ function bindEvents() {
 
   el.cloudAuthForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    signInToCloud();
+    signInToCloud({ email: el.cloudEmail.value, shouldCreateUser: true });
   });
   el.syncCloudButton.addEventListener("click", () => syncCloudNow());
   el.signOutButton.addEventListener("click", () => signOutOfCloud());
@@ -429,6 +455,23 @@ function isKnownZone(zone) {
   return zones.some((item) => item.id === zone);
 }
 
+function readSessionFlag(key) {
+  try {
+    return sessionStorage.getItem(key) === "true";
+  } catch (error) {
+    return false;
+  }
+}
+
+function writeSessionFlag(key, value) {
+  try {
+    if (value) sessionStorage.setItem(key, "true");
+    else sessionStorage.removeItem(key);
+  } catch (error) {
+    // Session storage is optional; the UI state still works for this page load.
+  }
+}
+
 function saveTrip() {
   persistLocalTrip();
   scheduleCloudSave();
@@ -519,6 +562,38 @@ function renderCloudPanel() {
   if (!cloud.configured && !cloud.loading) {
     el.cloudUserLabel.textContent = "Add Supabase env vars in Vercel";
   }
+  renderAuthGate();
+}
+
+function renderAuthGate() {
+  if (!el.authGate || !el.appShell) return;
+
+  const cloud = state.cloud;
+  const signedIn = Boolean(cloud.user);
+  const localModeAllowed = !cloud.configured && state.localAccess;
+  const allowTrips = signedIn || localModeAllowed;
+
+  el.authGate.hidden = allowTrips;
+  el.appShell.hidden = !allowTrips;
+  if (allowTrips) return;
+
+  let status = "Checking setup";
+  let message = "Checking your Supabase connection before loading the planner.";
+
+  if (!cloud.loading && !cloud.configured) {
+    status = "Setup needed";
+    message = cloud.lastError || "Supabase env vars are missing in Vercel. Add them to enable login and shared trips.";
+  } else if (!cloud.loading && cloud.configured) {
+    status = "Login required";
+    message = "Enter your email to receive a secure Supabase link before opening your trips.";
+  }
+
+  el.authStatus.textContent = status;
+  el.authGateMessage.textContent = message;
+  el.authGateForm.hidden = cloud.loading || !cloud.configured;
+  el.continueLocalButton.hidden = cloud.loading || cloud.configured;
+  el.authLoginButton.disabled = cloud.loading || !cloud.configured;
+  el.authSignupButton.disabled = cloud.loading || !cloud.configured;
 }
 
 function renderTripSelect() {
@@ -607,22 +682,27 @@ async function handleCloudSession(session, shouldLoadTrip) {
   }
 }
 
-async function signInToCloud() {
+async function signInToCloud(options = {}) {
   if (!state.cloud.client) {
     showToast("Add Supabase env vars in Vercel first.");
     return;
   }
 
-  const email = el.cloudEmail.value.trim();
+  const email = String(options.email || el.cloudEmail.value || el.authEmail.value || "").trim();
   if (!email) {
     showToast("Enter your email first.");
     return;
   }
 
+  el.cloudEmail.value = email;
+  el.authEmail.value = email;
+  const shouldCreateUser = options.shouldCreateUser !== false;
+
   const { error } = await state.cloud.client.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: window.location.href.split("#")[0]
+      emailRedirectTo: window.location.href.split("#")[0],
+      shouldCreateUser
     }
   });
 
@@ -633,7 +713,10 @@ async function signInToCloud() {
     return;
   }
 
-  showToast("Check your email for the sign-in link.");
+  el.authGateMessage.textContent = shouldCreateUser
+    ? "Check your email for the account link, then return here to open your trips."
+    : "Check your email for the login link, then return here to open your trips.";
+  showToast(shouldCreateUser ? "Check your email for the account link." : "Check your email for the login link.");
 }
 
 async function signOutOfCloud() {
@@ -642,7 +725,7 @@ async function signOutOfCloud() {
   state.cloud.session = null;
   state.cloud.user = null;
   renderCloudPanel();
-  showToast("Signed out. Local fallback is still here.");
+  showToast("Signed out.");
 }
 
 async function loadCloudTrips() {

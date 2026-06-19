@@ -12,7 +12,51 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <section class="auth-gate" id="authGate" aria-label="Sign in to Itinerary Studio">
+      <div class="auth-card">
+        <div class="auth-visual">
+          <img src="assets/iceland-panorama.png" alt="" />
+          <div class="auth-brand">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 32 32" role="img">
+                <path d="M4 21.7 10.7 10l5.1 8.3 3.4-5.1L28 21.7H4Z" />
+                <path d="M8.5 21.7h15.9" />
+                <circle cx="23.6" cy="8.4" r="2.5" />
+              </svg>
+            </span>
+            <span>
+              <strong>Itinerary Studio</strong>
+              <small>Shared trip planning</small>
+            </span>
+          </div>
+        </div>
+
+        <div class="auth-panel">
+          <span class="soft-tag" id="authStatus">Checking setup</span>
+          <h1>Sign in to your trips</h1>
+          <p id="authGateMessage">Checking your Supabase connection before loading the planner.</p>
+
+          <form class="auth-form" id="authGateForm">
+            <label>
+              <span>Email</span>
+              <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" required />
+            </label>
+            <button class="primary-button" id="authLoginButton" type="submit">Send login link</button>
+            <button class="ghost-button" id="authSignupButton" type="button">Create account link</button>
+          </form>
+
+          <button class="text-button local-access-button" id="continueLocalButton" type="button" hidden>
+            Continue locally
+          </button>
+
+          <p class="auth-footnote">
+            You and your partner can use separate devices after signing in with Supabase email links.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <div class="app-shell" id="appShell" hidden>
       <header class="topbar">
         <a class="brand" href="#app" aria-label="Itinerary Studio home">
           <span class="brand-mark" aria-hidden="true">
