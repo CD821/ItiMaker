@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Iceland Itinerary Studio</title>
+    <meta
+      name="description"
+      content="A GitHub Pages-friendly itinerary maker with calendar, timeline, timezone, notes, and attachment views."
+    />
+    <link rel="icon" href="assets/iceland-panorama.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#app" aria-label="Iceland Itinerary Studio home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" role="img">
+              <path d="M4 21.7 10.7 10l5.1 8.3 3.4-5.1L28 21.7H4Z" />
+              <path d="M8.5 21.7h15.9" />
+              <circle cx="23.6" cy="8.4" r="2.5" />
+            </svg>
+          </span>
+          <span>
+            <strong>Iceland Itinerary Studio</strong>
+            <small id="tripSubtitle">US to Iceland planner</small>
+          </span>
+        </a>
+
+        <nav class="top-actions" aria-label="Trip actions">
+          <button class="icon-button" id="newTripButton" type="button" title="New trip" aria-label="New trip">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <button class="icon-button" id="importButton" type="button" title="Import JSON" aria-label="Import JSON">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v12" />
+              <path d="m7 10 5 5 5-5" />
+              <path d="M5 21h14" />
+            </svg>
+          </button>
+          <button class="icon-button" id="exportJsonButton" type="button" title="Download JSON" aria-label="Download JSON">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+              <path d="M14 3v5h5" />
+              <path d="M9 15h6M9 18h4" />
+            </svg>
+          </button>
+          <button class="icon-button" id="exportIcsButton" type="button" title="Download calendar" aria-label="Download calendar">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 2v4M17 2v4" />
+              <path d="M4 8h16" />
+              <path d="M6 4h12a2 2 0 0 1 2 2v14H4V6a2 2 0 0 1 2-2Z" />
+              <path d="m9 14 2 2 4-5" />
+            </svg>
+          </button>
+          <button class="icon-button" id="shareButton" type="button" title="Copy share link" aria-label="Copy share link">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8.7 12.9 15.4 17" />
+              <path d="M15.3 7 8.7 11.1" />
+              <circle cx="6.5" cy="12" r="2.5" />
+              <circle cx="17.5" cy="6" r="2.5" />
+              <circle cx="17.5" cy="18" r="2.5" />
+            </svg>
+          </button>
+          <button class="icon-button" id="printButton" type="button" title="Print" aria-label="Print">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 8V3h10v5" />
+              <path d="M7 17H5a2 2 0 0 1-2-2v-4a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v4a2 2 0 0 1-2 2h-2" />
+              <path d="M7 14h10v7H7z" />
+            </svg>
+          </button>
+        </nav>
+      </header>
+
+      <main class="studio" id="app">
+        <aside class="panel editor-panel" aria-label="Itinerary editor">
+          <div class="trip-cover">
+            <img src="assets/iceland-panorama.png" alt="" />
+            <div class="trip-cover-text">
+              <label for="tripName">Trip name</label>
+              <input id="tripName" type="text" autocomplete="off" />
+            </div>
+          </div>
+
+          <section class="form-section" aria-labelledby="timezoneHeading">
+            <div class="section-heading">
+              <h2 id="timezoneHeading">Time zones</h2>
+              <span id="zoneDelta" class="soft-tag">UTC</span>
+            </div>
+            <div class="field-grid two">
+              <label>
+                <span>US time</span>
+                <select id="originZone"></select>
+              </label>
+              <label>
+                <span>Iceland time</span>
+                <select id="destinationZone"></select>
+              </label>
+            </div>
+          </section>
+
+          <form class="stop-form" id="stopForm">
+            <div class="section-heading">
+              <h2 id="formTitle">Add stop</h2>
+              <button class="text-button" id="clearFormButton" type="button">Clear</button>
+            </div>
+
+            <label>
+              <span>Location</span>
+              <input id="stopTitle" type="text" placeholder="Reykjavik food walk" required />
+            </label>
+
+            <div class="field-grid two">
+              <label>
+                <span>Date</span>
+                <input id="stopDate" type="date" required />
+              </label>
+              <label>
+                <span>Time</span>
+                <input id="stopTime" type="time" required />
+              </label>
+            </div>
+
+            <div class="field-grid two">
+              <label>
+                <span>Type</span>
+                <select id="stopType">
+                  <option value="flight">Flight</option>
+                  <option value="stay">Stay</option>
+                  <option value="food">Food</option>
+                  <option value="sight">Sight</option>
+                  <option value="drive">Drive</option>
+                  <option value="note">Note</option>
+                </select>
+              </label>
+              <label>
+                <span>Duration</span>
+                <select id="stopDuration">
+                  <option value="30">30 min</option>
+                  <option value="60">1 hour</option>
+                  <option value="90">1.5 hours</option>
+                  <option value="120">2 hours</option>
+                  <option value="180">3 hours</option>
+                  <option value="240">4 hours</option>
+                  <option value="360">6 hours</option>
+                  <option value="480">8 hours</option>
+                </select>
+              </label>
+            </div>
+
+            <label>
+              <span>Time entered as</span>
+              <select id="stopZone"></select>
+            </label>
+
+            <label>
+              <span>Notes</span>
+              <textarea id="stopNotes" rows="4" placeholder="Confirmation numbers, driving notes, weather backup..."></textarea>
+            </label>
+
+            <div class="upload-box">
+              <label for="stopAttachments">
+                <span>Attachments</span>
+                <strong>Drop photos or files</strong>
+              </label>
+              <input id="stopAttachments" type="file" multiple />
+              <div class="attachment-list compact" id="draftAttachments" aria-live="polite"></div>
+            </div>
+
+            <button class="primary-button" type="submit" id="saveStopButton">
+              <span>Save stop</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12h14" />
+                <path d="m13 6 6 6-6 6" />
+              </svg>
+            </button>
+          </form>
+        </aside>
+
+        <section class="workspace" aria-label="Itinerary workspace">
+          <div class="workspace-header">
+            <div>
+              <h1 id="workspaceTitle">Iceland route, visually managed</h1>
+              <p id="workspaceMeta"></p>
+            </div>
+            <div class="segmented" role="tablist" aria-label="View mode">
+              <button class="active" type="button" data-view="timeline" role="tab" aria-selected="true">Timeline</button>
+              <button type="button" data-view="calendar" role="tab" aria-selected="false">Calendar</button>
+              <button type="button" data-view="board" role="tab" aria-selected="false">Trip board</button>
+            </div>
+          </div>
+
+          <div class="day-strip" id="dayStrip" aria-label="Trip days"></div>
+
+          <div class="view-options">
+            <div class="lens-control" aria-label="Time display">
+              <button type="button" class="active" data-lens="both">Both</button>
+              <button type="button" data-lens="destination">Iceland</button>
+              <button type="button" data-lens="origin">US</button>
+            </div>
+            <div class="quick-stats" id="quickStats"></div>
+          </div>
+
+          <div class="view active" id="timelineView" aria-live="polite"></div>
+          <div class="view" id="calendarView" aria-live="polite"></div>
+          <div class="view" id="boardView" aria-live="polite"></div>
+        </section>
+
+        <aside class="panel insight-panel" aria-label="Trip insights">
+          <section class="clock-panel">
+            <div class="dual-clock">
+              <div>
+                <span>US time</span>
+                <strong id="originClock">--:--</strong>
+                <small id="originClockZone"></small>
+              </div>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12h14" />
+                <path d="m13 6 6 6-6 6" />
+              </svg>
+              <div>
+                <span>Iceland time</span>
+                <strong id="destinationClock">--:--</strong>
+                <small id="destinationClockZone"></small>
+              </div>
+            </div>
+          </section>
+
+          <section class="selected-card" id="selectedCard" aria-live="polite"></section>
+
+          <section>
+            <div class="section-heading">
+              <h2>Trip rhythm</h2>
+              <span class="soft-tag" id="paceLabel">Balanced</span>
+            </div>
+            <div class="rhythm-bars" id="rhythmBars"></div>
+          </section>
+
+          <section>
+            <div class="section-heading">
+              <h2>Attachment shelf</h2>
+              <span class="soft-tag" id="attachmentCount">0</span>
+            </div>
+            <div class="attachment-gallery" id="attachmentGallery"></div>
+          </section>
+
+          <section>
+            <div class="section-heading">
+              <h2>Time notes</h2>
+            </div>
+            <ul class="note-list" id="timeNotes"></ul>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <input id="importInput" type="file" accept="application/json,.json" hidden />
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
