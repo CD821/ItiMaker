@@ -288,6 +288,16 @@ svg {
   box-shadow: 0 8px 18px rgba(20, 47, 54, 0.08);
 }
 
+.danger-button {
+  color: #9d3d32;
+}
+
+.danger-button:hover {
+  border-color: rgba(157, 61, 50, 0.42);
+  color: #842f27;
+  background: #fff8f6;
+}
+
 .studio {
   display: grid;
   grid-template-columns: minmax(278px, 330px) minmax(520px, 1fr) minmax(278px, 330px);
@@ -420,6 +430,12 @@ label span,
 .join-form {
   display: grid;
   gap: 10px;
+}
+
+.trip-management-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .cloud-account {

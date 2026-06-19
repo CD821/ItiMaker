@@ -11,6 +11,7 @@ create table if not exists public.trips (
   selected_stop_id uuid,
   share_code text not null unique default upper(substr(encode(gen_random_bytes(6), 'hex'), 1, 10)),
   share_enabled boolean not null default true,
+  archived_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -56,6 +57,7 @@ create table if not exists public.attachments (
 
 create index if not exists trips_owner_user_id_idx on public.trips(owner_user_id);
 create index if not exists trips_share_code_idx on public.trips(share_code) where share_enabled;
+create index if not exists trips_active_updated_at_idx on public.trips(updated_at desc) where archived_at is null;
 create index if not exists trip_members_user_id_idx on public.trip_members(user_id);
 create index if not exists stops_trip_id_starts_at_idx on public.stops(trip_id, starts_at_utc);
 create index if not exists attachments_trip_id_idx on public.attachments(trip_id);

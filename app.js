@@ -165,6 +165,8 @@ function cacheElements() {
     "shareCodeBox",
     "cloudShareCode",
     "tripSelect",
+    "archiveTripButton",
+    "deleteTripButton",
     "tripName",
     "openStopModalButton",
     "stopModal",
@@ -285,6 +287,8 @@ function bindEvents() {
     joinTripByCode();
   });
   el.tripSelect.addEventListener("change", () => switchTrip(el.tripSelect.value));
+  el.archiveTripButton.addEventListener("click", () => archiveActiveTrip());
+  el.deleteTripButton.addEventListener("click", () => deleteActiveTrip());
 
   el.clearFormButton.addEventListener("click", () => resetForm());
   el.stopAttachments.addEventListener("change", (event) => readFiles(event.target.files));
@@ -383,12 +387,16 @@ function loadTripStore() {
       const parsed = JSON.parse(stored);
       if (Array.isArray(parsed.trips)) {
         const trips = parsed.trips.map(normalizeTrip);
+        const activeTrips = trips.filter((trip) => !trip.archivedAt);
         const activeTrip =
-          trips.find((trip) => trip.localId === parsed.activeTripKey || trip.cloudId === parsed.activeCloudId) ||
-          trips[0] ||
-          normalizeTrip(fallbackTrip);
+          activeTrips.find((trip) => trip.localId === parsed.activeTripKey || trip.cloudId === parsed.activeCloudId) ||
+          activeTrips[0] ||
+          createBlankTrip();
+        const visibleTrips = trips.some((trip) => trip.localId === activeTrip.localId)
+          ? trips
+          : [...trips, activeTrip];
         return {
-          trips: trips.length ? trips : [activeTrip],
+          trips: visibleTrips.length ? visibleTrips : [activeTrip],
           activeTripKey: activeTrip.localId,
           activeTrip
         };
@@ -426,6 +434,7 @@ function normalizeTrip(trip) {
   normalized.cloudId = isUuid(normalized.cloudId) ? normalized.cloudId : null;
   normalized.cloudOwnerId = isUuid(normalized.cloudOwnerId) ? normalized.cloudOwnerId : null;
   normalized.shareCode = normalized.shareCode || "";
+  normalized.archivedAt = normalized.archivedAt || normalized.archived_at || "";
   normalized.originZone = isKnownZone(normalized.originZone) && normalized.originZone !== "Atlantic/Reykjavik"
     ? normalized.originZone
     : "America/Chicago";
@@ -483,6 +492,20 @@ function normalizeTrip(trip) {
     ? selectedId
     : normalized.stops[0]?.id || null;
   return normalized;
+}
+
+function createBlankTrip(name = "New Trip") {
+  return normalizeTrip({
+    name,
+    localId: createId(),
+    originZone: "America/Chicago",
+    destinationZone: "Atlantic/Reykjavik",
+    activeView: "timeline",
+    calendarMode: "week",
+    timeLens: "both",
+    selectedId: null,
+    stops: []
+  });
 }
 
 function isKnownZone(zone) {
@@ -590,6 +613,8 @@ function renderCloudPanel() {
   el.shareCodeBox.hidden = !signedIn || !state.trip.shareCode;
   el.syncCloudButton.disabled = !signedIn || cloud.syncing;
   el.signOutButton.disabled = cloud.syncing;
+  el.archiveTripButton.disabled = cloud.syncing;
+  el.deleteTripButton.disabled = cloud.syncing;
   el.cloudUserLabel.textContent = cloud.user?.email || "Not connected";
   el.cloudShareCode.textContent = state.trip.shareCode || "----";
 
@@ -631,12 +656,12 @@ function renderAuthGate() {
 }
 
 function renderTripSelect() {
-  const localOptions = state.trips.map((trip) => `
+  const localOptions = state.trips.filter((trip) => !trip.archivedAt).map((trip) => `
     <option value="local:${trip.localId}">${escapeHtml(trip.name || "Untitled trip")}</option>
   `);
-  const localCloudIds = new Set(state.trips.map((trip) => trip.cloudId).filter(Boolean));
+  const localCloudIds = new Set(state.trips.filter((trip) => !trip.archivedAt).map((trip) => trip.cloudId).filter(Boolean));
   const cloudOptions = state.cloud.trips
-    .filter((trip) => !localCloudIds.has(trip.id))
+    .filter((trip) => !trip.archived_at && !localCloudIds.has(trip.id))
     .map((trip) => `
       <option value="cloud:${trip.id}">${escapeHtml(trip.name || "Cloud trip")}</option>
     `);
@@ -765,11 +790,18 @@ async function signOutOfCloud() {
 async function loadCloudTrips() {
   if (!state.cloud.client || !state.cloud.user) return;
 
-  const { data, error } = await state.cloud.client
+  let { data, error } = await state.cloud.client
     .from("trips")
-    .select("id,name,share_code,updated_at")
+    .select("id,name,share_code,updated_at,archived_at")
+    .is("archived_at", null)
     .order("updated_at", { ascending: false })
     .limit(50);
+
+  if (error && /archived_at/i.test(error.message || "")) {
+    state.cloud.lastError = "Run migrate-archive-trips.sql in Supabase.";
+    renderCloudPanel();
+    return;
+  }
 
   if (error) {
     setCloudError(error);
@@ -842,6 +874,7 @@ function cloudRowsToTrip(trip, stops, attachments) {
     cloudId: trip.id,
     cloudOwnerId: trip.owner_user_id,
     shareCode: trip.share_code,
+    archivedAt: trip.archived_at || "",
     originZone: trip.origin_zone,
     destinationZone: trip.destination_zone,
     activeView: trip.active_view,
@@ -947,8 +980,7 @@ function upsertCloudTripSummary() {
 }
 
 async function upsertCloudTrip(isNewTrip) {
-  const tripRow = {
-    id: state.trip.cloudId,
+  const tripFields = {
     name: state.trip.name,
     origin_zone: state.trip.originZone,
     destination_zone: state.trip.destinationZone,
@@ -959,22 +991,34 @@ async function upsertCloudTrip(isNewTrip) {
     share_enabled: true
   };
 
-  if (isNewTrip || !state.trip.cloudOwnerId) {
-    tripRow.owner_user_id = state.cloud.user.id;
+  let result;
+  if (isNewTrip) {
+    result = await state.cloud.client
+      .from("trips")
+      .upsert({
+        id: state.trip.cloudId,
+        ...tripFields,
+        owner_user_id: state.cloud.user.id
+      })
+      .select("*")
+      .single();
+  } else {
+    result = await state.cloud.client
+      .from("trips")
+      .update(tripFields)
+      .eq("id", state.trip.cloudId)
+      .select("*")
+      .single();
   }
 
-  const { data, error } = await state.cloud.client
-    .from("trips")
-    .upsert(tripRow)
-    .select("*")
-    .single();
+  const { data, error } = result;
 
   if (error) throw error;
 
   state.trip.cloudOwnerId = data.owner_user_id;
   state.trip.shareCode = data.share_code;
 
-  if (isNewTrip) {
+  if (data.owner_user_id === state.cloud.user.id) {
     const { error: memberError } = await state.cloud.client
       .from("trip_members")
       .upsert(
@@ -1722,6 +1766,86 @@ async function switchTrip(value) {
   setInitialFormValues();
   render();
   showToast("Trip switched.");
+}
+
+async function archiveActiveTrip() {
+  const ok = window.confirm(`Archive "${state.trip.name}"? It will be hidden from your active trip list.`);
+  if (!ok) return;
+
+  const archivedAt = new Date().toISOString();
+  if (state.cloud.client && state.cloud.user && state.trip.cloudId) {
+    state.cloud.syncing = true;
+    state.cloud.lastError = "";
+    renderCloudPanel();
+    const { error } = await state.cloud.client
+      .from("trips")
+      .update({ archived_at: archivedAt, share_enabled: false })
+      .eq("id", state.trip.cloudId);
+    state.cloud.syncing = false;
+
+    if (error) {
+      if (/archived_at/i.test(error.message || "")) {
+        state.cloud.lastError = "Run migrate-archive-trips.sql in Supabase.";
+      } else {
+        setCloudError(error);
+      }
+      renderCloudPanel();
+      showToast("Trip could not be archived.");
+      return;
+    }
+
+    state.cloud.trips = state.cloud.trips.filter((trip) => trip.id !== state.trip.cloudId);
+  }
+
+  const localTrip = state.trips.find((trip) => trip.localId === state.trip.localId);
+  if (localTrip) localTrip.archivedAt = archivedAt;
+  state.trip.archivedAt = archivedAt;
+  activateNextTrip("Trip archived.");
+}
+
+async function deleteActiveTrip() {
+  const ok = window.confirm(`Delete "${state.trip.name}"? This removes it from this planner${state.trip.cloudId ? " and attempts to delete the cloud trip" : ""}.`);
+  if (!ok) return;
+
+  if (state.cloud.client && state.cloud.user && state.trip.cloudId) {
+    state.cloud.syncing = true;
+    state.cloud.lastError = "";
+    renderCloudPanel();
+    const { error } = await state.cloud.client
+      .from("trips")
+      .delete()
+      .eq("id", state.trip.cloudId);
+    state.cloud.syncing = false;
+
+    if (error) {
+      setCloudError(error);
+      renderCloudPanel();
+      showToast("Only the owner can delete a cloud trip.");
+      return;
+    }
+
+    state.cloud.trips = state.cloud.trips.filter((trip) => trip.id !== state.trip.cloudId);
+  }
+
+  state.trips = state.trips.filter((trip) => trip.localId !== state.trip.localId);
+  activateNextTrip("Trip deleted.");
+}
+
+function activateNextTrip(message) {
+  const nextTrip = state.trips.find((trip) => !trip.archivedAt);
+  if (nextTrip) {
+    state.trip = normalizeTrip(nextTrip);
+  } else {
+    state.trip = createBlankTrip();
+    state.trips.push(state.trip);
+  }
+  state.activeDay = null;
+  state.editingId = null;
+  state.draftAttachments = [];
+  persistLocalTrip();
+  setInitialFormValues();
+  render();
+  showToast(message);
 }
 
 function readFiles(fileList) {

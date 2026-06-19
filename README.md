@@ -5,6 +5,7 @@ A Vercel + Supabase-ready itinerary maker for planning a US-to-Iceland trip acro
 ## Features
 
 - Multiple trips from the same account
+- Archive or delete trips from the trip selector area
 - Locations, start/end dates and times, notes, and attachments
 - Popup add/edit stop window
 - Timeline, calendar, and infographic trip-board views
@@ -32,9 +33,10 @@ A Vercel + Supabase-ready itinerary maker for planning a US-to-Iceland trip acro
 6. If you already ran an older version of the schema that used `duration_minutes`, run `supabase/migrate-start-end-times.sql`.
 7. If your Supabase project already existed before the `Waiting` stop type was added, run `supabase/migrate-waiting-stop-type.sql`.
 8. If your Supabase project already existed before the trip-members upsert fix, run `supabase/migrate-trip-members-upsert-policy.sql`.
-9. In Authentication > Providers, keep Email enabled and allow new users to sign up.
-10. In Authentication > URL Configuration, set Site URL to your Vercel production URL and add your Vercel production and preview URLs to Redirect URLs.
-11. Keep the `itinerary-attachments` bucket private. The SQL file creates RLS policies for trip members.
+9. If your Supabase project already existed before trip archiving was added, run `supabase/migrate-archive-trips.sql`.
+10. In Authentication > Providers, keep Email enabled and allow new users to sign up.
+11. In Authentication > URL Configuration, set Site URL to your Vercel production URL and add your Vercel production and preview URLs to Redirect URLs.
+12. Keep the `itinerary-attachments` bucket private. The SQL file creates RLS policies for trip members.
 
 `supabase/schema.sql` is still available as a combined setup file, but the two-step setup is easier to debug in the Supabase SQL Editor.
 
@@ -77,6 +79,8 @@ After deployment, add the deployed Vercel URL to Supabase Auth redirect settings
 Use the trip selector under **Cloud sync** to switch between multiple local/cloud trips.
 
 Cloud changes autosave about one second after a change once the trip has been synced to Supabase. Another open device should reload the trip or refresh the page to pull the latest version; the app does not use live realtime presence yet.
+
+Archiving a cloud trip hides it from the active selector by setting `archived_at`. Deleting a cloud trip removes the database row when the signed-in user is the trip owner.
 
 ## Local Mode
 
