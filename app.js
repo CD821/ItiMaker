@@ -829,9 +829,10 @@ async function loadCloudTripById(tripId) {
   state.cloud.syncing = true;
   renderCloudPanel();
   const client = state.cloud.client;
+  const tripQuery = client.from("trips").select("*").eq("id", tripId);
   const [{ data: trip, error: tripError }, { data: stops, error: stopsError }, { data: attachments, error: attachmentsError }] =
     await Promise.all([
-      client.from("trips").select("*").eq("id", tripId).single(),
+      singleOrNull(tripQuery),
       client.from("stops").select("*").eq("trip_id", tripId).order("starts_at_utc", { ascending: true }),
       client.from("attachments").select("*").eq("trip_id", tripId)
     ]);
@@ -839,6 +840,13 @@ async function loadCloudTripById(tripId) {
   if (tripError || stopsError || attachmentsError) {
     state.cloud.syncing = false;
     setCloudError(tripError || stopsError || attachmentsError);
+    return;
+  }
+
+  if (!trip) {
+    state.cloud.syncing = false;
+    state.cloud.trips = state.cloud.trips.filter((cloudTrip) => cloudTrip.id !== tripId);
+    setCloudError(new Error("That cloud trip was not found. It may have been deleted or archived."));
     return;
   }
 
@@ -991,29 +999,33 @@ async function upsertCloudTrip(isNewTrip) {
     share_enabled: true
   };
 
-  let result;
+  let data;
   if (isNewTrip) {
-    result = await state.cloud.client
-      .from("trips")
-      .upsert({
-        id: state.trip.cloudId,
-        ...tripFields,
-        owner_user_id: state.cloud.user.id
-      })
-      .select("*")
-      .single();
+    data = await createOwnedCloudTrip(tripFields);
   } else {
-    result = await state.cloud.client
+    const query = state.cloud.client
       .from("trips")
       .update(tripFields)
       .eq("id", state.trip.cloudId)
-      .select("*")
-      .single();
+      .select("*");
+    const { data: updatedTrip, error } = await singleOrNull(query);
+
+    if (error) throw error;
+    data = updatedTrip;
+
+    if (!data) {
+      if (state.trip.cloudOwnerId && state.trip.cloudOwnerId !== state.cloud.user.id) {
+        throw new Error("This cloud trip could not be found for your account. Ask the owner to resend the join link.");
+      }
+
+      const staleCloudId = state.trip.cloudId;
+      state.trip.cloudId = createId();
+      state.trip.cloudOwnerId = null;
+      data = await createOwnedCloudTrip(tripFields);
+      state.cloud.trips = state.cloud.trips.filter((trip) => trip.id !== staleCloudId);
+      showToast("Reconnected this trip to cloud sync.");
+    }
   }
-
-  const { data, error } = result;
-
-  if (error) throw error;
 
   state.trip.cloudOwnerId = data.owner_user_id;
   state.trip.shareCode = data.share_code;
@@ -1031,6 +1043,38 @@ async function upsertCloudTrip(isNewTrip) {
       );
     if (memberError) throw memberError;
   }
+}
+
+async function createOwnedCloudTrip(tripFields) {
+  const { data, error } = await state.cloud.client
+    .from("trips")
+    .upsert({
+      id: state.trip.cloudId,
+      ...tripFields,
+      owner_user_id: state.cloud.user.id
+    })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function singleOrNull(query) {
+  if (typeof query.maybeSingle === "function") {
+    return query.maybeSingle();
+  }
+
+  const result = await query.single();
+  if (isMissingSingleRowError(result.error)) {
+    return { data: null, error: null };
+  }
+  return result;
+}
+
+function isMissingSingleRowError(error) {
+  const message = error?.message || "";
+  return error?.code === "PGRST116" || /Cannot coerce the result to a single JSON object/i.test(message);
 }
 
 async function updateCloudSelectedStop() {
