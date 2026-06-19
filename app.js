@@ -977,11 +977,14 @@ async function upsertCloudTrip(isNewTrip) {
   if (isNewTrip) {
     const { error: memberError } = await state.cloud.client
       .from("trip_members")
-      .upsert({
-        trip_id: state.trip.cloudId,
-        user_id: state.cloud.user.id,
-        role: "owner"
-      });
+      .upsert(
+        {
+          trip_id: state.trip.cloudId,
+          user_id: state.cloud.user.id,
+          role: "owner"
+        },
+        { onConflict: "trip_id,user_id", ignoreDuplicates: true }
+      );
     if (memberError) throw memberError;
   }
 }

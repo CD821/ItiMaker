@@ -31,9 +31,10 @@ A Vercel + Supabase-ready itinerary maker for planning a US-to-Iceland trip acro
 5. Run `supabase/check-setup.sql`. You should see all four public tables with `rowsecurity = true`, plus the private `itinerary-attachments` bucket.
 6. If you already ran an older version of the schema that used `duration_minutes`, run `supabase/migrate-start-end-times.sql`.
 7. If your Supabase project already existed before the `Waiting` stop type was added, run `supabase/migrate-waiting-stop-type.sql`.
-8. In Authentication > Providers, keep Email enabled and allow new users to sign up.
-9. In Authentication > URL Configuration, set Site URL to your Vercel production URL and add your Vercel production and preview URLs to Redirect URLs.
-10. Keep the `itinerary-attachments` bucket private. The SQL file creates RLS policies for trip members.
+8. If your Supabase project already existed before the trip-members upsert fix, run `supabase/migrate-trip-members-upsert-policy.sql`.
+9. In Authentication > Providers, keep Email enabled and allow new users to sign up.
+10. In Authentication > URL Configuration, set Site URL to your Vercel production URL and add your Vercel production and preview URLs to Redirect URLs.
+11. Keep the `itinerary-attachments` bucket private. The SQL file creates RLS policies for trip members.
 
 `supabase/schema.sql` is still available as a combined setup file, but the two-step setup is easier to debug in the Supabase SQL Editor.
 
