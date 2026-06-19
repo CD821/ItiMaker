@@ -17,6 +17,7 @@ const typeMeta = {
   food: { label: "Food", color: "#d59643", icon: "fork" },
   sight: { label: "Sight", color: "#5fa55b", icon: "mountain" },
   drive: { label: "Drive", color: "#087b83", icon: "car" },
+  waiting: { label: "Waiting", color: "#7b6fd0", icon: "clock" },
   note: { label: "Note", color: "#29363a", icon: "note" }
 };
 
@@ -26,6 +27,7 @@ const fallbackTrip = {
   originZone: "America/Chicago",
   destinationZone: "Atlantic/Reykjavik",
   activeView: "timeline",
+  calendarMode: "week",
   timeLens: "both",
   selectedId: "22222222-2222-4222-8222-222222222222",
   stops: [
@@ -164,6 +166,9 @@ function cacheElements() {
     "cloudShareCode",
     "tripSelect",
     "tripName",
+    "openStopModalButton",
+    "stopModal",
+    "closeStopModalButton",
     "originZone",
     "destinationZone",
     "zoneDelta",
@@ -257,6 +262,17 @@ function bindEvents() {
     event.preventDefault();
     saveStopFromForm();
   });
+  el.openStopModalButton.addEventListener("click", () => {
+    resetForm(false);
+    openStopModal();
+  });
+  el.closeStopModalButton.addEventListener("click", () => closeStopModal());
+  el.stopModal.addEventListener("click", (event) => {
+    if (event.target === el.stopModal) closeStopModal();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !el.stopModal.hidden) closeStopModal();
+  });
 
   el.cloudAuthForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -305,6 +321,23 @@ function bindEvents() {
   });
 
   document.addEventListener("click", (event) => {
+    const calendarMode = event.target.closest("[data-calendar-mode]");
+    if (calendarMode) {
+      state.trip.calendarMode = calendarMode.dataset.calendarMode;
+      saveTrip();
+      renderCalendar();
+      return;
+    }
+
+    const calendarDay = event.target.closest("[data-calendar-day]");
+    if (calendarDay) {
+      state.activeDay = calendarDay.dataset.calendarDay;
+      state.trip.calendarMode = "day";
+      saveTrip();
+      render();
+      return;
+    }
+
     const action = event.target.closest("[data-action]");
     if (!action) return;
     const id = action.dataset.id;
@@ -398,6 +431,7 @@ function normalizeTrip(trip) {
     : "America/Chicago";
   normalized.destinationZone = isKnownZone(normalized.destinationZone) ? normalized.destinationZone : "Atlantic/Reykjavik";
   normalized.activeView = ["timeline", "calendar", "board"].includes(normalized.activeView) ? normalized.activeView : "timeline";
+  normalized.calendarMode = ["month", "week", "day"].includes(normalized.calendarMode) ? normalized.calendarMode : "week";
   normalized.timeLens = ["both", "origin", "destination"].includes(normalized.timeLens) ? normalized.timeLens : "both";
 
   normalized.stops = normalized.stops.map((stop) => {
@@ -617,8 +651,8 @@ function cloudHintText() {
   if (!cloud.user) return "Sign in to sync this itinerary across devices.";
   if (cloud.syncing) return "Saving itinerary changes.";
   if (cloud.lastError) return cloud.lastError;
-  if (state.trip.cloudId) return "Shared cloud trip is active.";
-  return "Use Sync now to save this local trip to Supabase.";
+  if (state.trip.cloudId) return "Autosaves about 1 second after changes. Reload another device to pull the latest.";
+  return "Use Sync now once; after that, changes autosave about 1 second later.";
 }
 
 async function initCloud() {
@@ -1212,8 +1246,32 @@ function renderCalendar() {
     return;
   }
 
-  const hours = calendarHours();
+  const mode = state.trip.calendarMode || "week";
+  const referenceIso = calendarReferenceIso();
+  const title = calendarRangeLabel(mode, referenceIso);
+  const body = mode === "month"
+    ? renderMonthCalendar(referenceIso)
+    : renderCalendarTimeGrid(mode === "day" ? [dayInfo(referenceIso)] : weekDays(referenceIso));
+
   el.calendarView.innerHTML = `
+    <div class="calendar-toolbar">
+      <div>
+        <strong>${escapeHtml(title)}</strong>
+        <span>${modeLabel(mode)}</span>
+      </div>
+      <div class="segmented compact-segmented" aria-label="Calendar range">
+        <button class="${mode === "month" ? "active" : ""}" type="button" data-calendar-mode="month">Month</button>
+        <button class="${mode === "week" ? "active" : ""}" type="button" data-calendar-mode="week">Week</button>
+        <button class="${mode === "day" ? "active" : ""}" type="button" data-calendar-mode="day">Day</button>
+      </div>
+    </div>
+    ${body}
+  `;
+}
+
+function renderCalendarTimeGrid(days) {
+  const hours = calendarHours(days);
+  return `
     <div class="calendar-shell">
       <div class="calendar-scroll">
         <div class="calendar-grid" style="--day-count:${days.length}">
@@ -1252,9 +1310,62 @@ function renderCalendarEvent(stop) {
   return `
     <button class="calendar-event" type="button" data-action="select" data-id="${stop.id}" style="border-left-color:${meta.color}">
       <strong>${escapeHtml(stop.title)}</strong>
-      <span>${formatTimeForZone(toUtc(stop), state.trip.destinationZone)} - ${meta.label}</span>
+      <span>${formatTimeForZone(toUtc(stop), state.trip.destinationZone)}-${formatTimeForZone(toEndUtc(stop), state.trip.destinationZone)} - ${meta.label}</span>
     </button>
   `;
+}
+
+function renderMonthCalendar(referenceIso) {
+  const days = monthDays(referenceIso);
+  const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return `
+    <div class="month-calendar" style="--month-cells:${days.length}">
+      ${weekdayLabels.map((label) => `<div class="month-weekday">${label}</div>`).join("")}
+      ${days.map((day) => renderMonthCell(day)).join("")}
+    </div>
+  `;
+}
+
+function renderMonthCell(day) {
+  if (!day) return `<div class="month-cell muted" aria-hidden="true"></div>`;
+  const stops = stopsForDestinationDay(day.iso);
+  return `
+    <button class="month-cell ${day.iso === state.activeDay ? "active" : ""}" type="button" data-calendar-day="${day.iso}">
+      <strong>${day.dayNumber}</strong>
+      <span>${day.weekday}</span>
+      <div class="month-events">
+        ${stops.slice(0, 3).map((stop) => {
+          const meta = typeMeta[stop.type];
+          return `<em style="border-color:${meta.color}">${escapeHtml(stop.title)}</em>`;
+        }).join("")}
+        ${stops.length > 3 ? `<small>+${stops.length - 3} more</small>` : ""}
+      </div>
+    </button>
+  `;
+}
+
+function calendarReferenceIso() {
+  const days = tripDays();
+  if (state.activeDay && days.some((day) => day.iso === state.activeDay)) return state.activeDay;
+  return days[0]?.iso || todayIso();
+}
+
+function calendarRangeLabel(mode, referenceIso) {
+  if (mode === "day") {
+    return dayInfo(referenceIso).monthDay;
+  }
+  const date = isoToUtcDate(referenceIso);
+  if (mode === "month") {
+    return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(date);
+  }
+  const days = weekDays(referenceIso);
+  return `${days[0].monthDay} - ${days[days.length - 1].monthDay}`;
+}
+
+function modeLabel(mode) {
+  if (mode === "month") return "Month overview";
+  if (mode === "day") return "Single-day schedule";
+  return "Week schedule";
 }
 
 function renderBoard() {
@@ -1353,7 +1464,15 @@ function renderRhythmBars() {
           const stops = stopsForDestinationDay(day.iso);
           const blocks = Array.from({ length: 24 }, (_, hour) => {
             const hit = stops.find((stop) => hourIsBusy(stop, hour));
-            const kind = hit?.type === "flight" || hit?.type === "drive" ? "travel" : hit?.type === "sight" ? "sight" : hit ? "busy" : "";
+            const kind = hit?.type === "flight" || hit?.type === "drive"
+              ? "travel"
+              : hit?.type === "sight"
+                ? "sight"
+                : hit?.type === "waiting"
+                  ? "waiting"
+                  : hit
+                    ? "busy"
+                    : "";
             return `<span class="rhythm-block ${kind}" title="${hourLabel(hour)}"></span>`;
           }).join("");
           return `
@@ -1391,6 +1510,20 @@ function renderDraftAttachments() {
   el.draftAttachments.innerHTML = state.draftAttachments.length
     ? state.draftAttachments.map((attachment, index) => renderAttachment(attachment, true, "", index)).join("")
     : "";
+}
+
+function openStopModal() {
+  el.stopModal.hidden = false;
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => el.stopTitle.focus(), 0);
+}
+
+function closeStopModal(shouldReset = true) {
+  if (shouldReset) {
+    resetForm(false);
+  }
+  el.stopModal.hidden = true;
+  document.body.classList.remove("modal-open");
 }
 
 function renderAttachment(attachment, removable, stopTitle = "", index = null) {
@@ -1460,6 +1593,7 @@ function saveStopFromForm() {
   saveTrip();
   resetForm(false);
   render();
+  closeStopModal(false);
 }
 
 function resetForm(showMessage = true) {
@@ -1503,6 +1637,7 @@ function editStop(id) {
   renderStopLengthPreview();
   saveTrip();
   render();
+  openStopModal();
   el.stopTitle.focus();
 }
 
@@ -1781,8 +1916,7 @@ function tripDays() {
 }
 
 function dayInfo(iso) {
-  const [year, month, day] = iso.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  const date = isoToUtcDate(iso);
   return {
     iso,
     dayNumber: new Intl.DateTimeFormat("en-US", { day: "numeric", timeZone: "UTC" }).format(date),
@@ -1790,6 +1924,39 @@ function dayInfo(iso) {
     monthDay: new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(date),
     monthDayShort: new Intl.DateTimeFormat("en-US", { month: "numeric", day: "numeric", timeZone: "UTC" }).format(date)
   };
+}
+
+function isoToUtcDate(iso) {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 12));
+}
+
+function addDaysIso(iso, offset) {
+  const date = isoToUtcDate(iso);
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date.toISOString().slice(0, 10);
+}
+
+function weekDays(referenceIso) {
+  const date = isoToUtcDate(referenceIso);
+  const offset = -date.getUTCDay();
+  return Array.from({ length: 7 }, (_, index) => dayInfo(addDaysIso(referenceIso, offset + index)));
+}
+
+function monthDays(referenceIso) {
+  const date = isoToUtcDate(referenceIso);
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const first = new Date(Date.UTC(year, month, 1, 12));
+  const last = new Date(Date.UTC(year, month + 1, 0, 12));
+  const leadingBlanks = first.getUTCDay();
+  const totalDays = last.getUTCDate();
+  const cells = Array.from({ length: leadingBlanks }, () => null);
+  for (let day = 1; day <= totalDays; day += 1) {
+    cells.push(dayInfo(new Date(Date.UTC(year, month, day, 12)).toISOString().slice(0, 10)));
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
 }
 
 function stopsForDestinationDay(iso) {
@@ -1935,8 +2102,9 @@ function destinationHour(stop) {
   return Number(formatParts(toUtc(stop), state.trip.destinationZone).time.split(":")[0]);
 }
 
-function calendarHours() {
-  const hours = sortedStops().map(destinationHour);
+function calendarHours(days = tripDays()) {
+  const scopedStops = days.flatMap((day) => stopsForDestinationDay(day.iso));
+  const hours = scopedStops.map(destinationHour);
   if (!hours.length) return Array.from({ length: 12 }, (_, index) => index + 8);
   const min = Math.max(0, Math.min(...hours) - 1);
   const max = Math.min(23, Math.max(...hours) + 2);

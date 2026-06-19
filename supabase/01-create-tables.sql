@@ -27,7 +27,7 @@ create table if not exists public.stops (
   id uuid primary key default gen_random_uuid(),
   trip_id uuid not null references public.trips(id) on delete cascade,
   title text not null,
-  stop_type text not null default 'note' check (stop_type in ('flight', 'stay', 'food', 'sight', 'drive', 'note')),
+  stop_type text not null default 'note' check (stop_type in ('flight', 'stay', 'food', 'sight', 'drive', 'waiting', 'note')),
   starts_at_utc timestamptz not null,
   ends_at_utc timestamptz not null,
   source_timezone text not null,

@@ -197,84 +197,19 @@
             </div>
           </section>
 
-          <form class="stop-form" id="stopForm">
+          <section class="stop-launch-panel" aria-labelledby="stopLauncherHeading">
             <div class="section-heading">
-              <h2 id="formTitle">Add stop</h2>
-              <button class="text-button" id="clearFormButton" type="button">Clear</button>
+              <h2 id="stopLauncherHeading">Stops</h2>
+              <span class="soft-tag">Popup editor</span>
             </div>
-
-            <label>
-              <span>Location</span>
-              <input id="stopTitle" type="text" placeholder="Reykjavik food walk" required />
-            </label>
-
-            <div class="field-grid two">
-              <label>
-                <span>Start date</span>
-                <input id="stopDate" type="date" required />
-              </label>
-              <label>
-                <span>Start time</span>
-                <input id="stopTime" type="time" required />
-              </label>
-            </div>
-
-            <div class="field-grid two">
-              <label>
-                <span>End date</span>
-                <input id="stopEndDate" type="date" required />
-              </label>
-              <label>
-                <span>End time</span>
-                <input id="stopEndTime" type="time" required />
-              </label>
-            </div>
-
-            <div class="field-grid two">
-              <label>
-                <span>Type</span>
-                <select id="stopType">
-                  <option value="flight">Flight</option>
-                  <option value="stay">Stay</option>
-                  <option value="food">Food</option>
-                  <option value="sight">Sight</option>
-                  <option value="drive">Drive</option>
-                  <option value="note">Note</option>
-                </select>
-              </label>
-              <div class="duration-readout">
-                <span>Length</span>
-                <strong id="stopLengthPreview">1h 30m</strong>
-              </div>
-            </div>
-
-            <label>
-              <span>Time entered as</span>
-              <select id="stopZone"></select>
-            </label>
-
-            <label>
-              <span>Notes</span>
-              <textarea id="stopNotes" rows="4" placeholder="Confirmation numbers, driving notes, weather backup..."></textarea>
-            </label>
-
-            <div class="upload-box">
-              <label for="stopAttachments">
-                <span>Attachments</span>
-                <strong>Drop photos or files</strong>
-              </label>
-              <input id="stopAttachments" type="file" multiple />
-              <div class="attachment-list compact" id="draftAttachments" aria-live="polite"></div>
-            </div>
-
-            <button class="primary-button" type="submit" id="saveStopButton">
-              <span>Save stop</span>
+            <p>Add or edit locations in a focused popup window.</p>
+            <button class="primary-button" id="openStopModalButton" type="button">
+              <span>Add stop</span>
               <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 12h14" />
-                <path d="m13 6 6 6-6 6" />
+                <path d="M12 5v14M5 12h14" />
               </svg>
             </button>
-          </form>
+          </section>
         </aside>
 
         <section class="workspace" aria-label="Itinerary workspace">
@@ -352,6 +287,100 @@
           </section>
         </aside>
       </main>
+    </div>
+
+    <div class="modal-backdrop" id="stopModal" hidden>
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="formTitle">
+        <form class="stop-form" id="stopForm">
+          <div class="modal-heading">
+            <div>
+              <span>Itinerary stop</span>
+              <h2 id="formTitle">Add stop</h2>
+            </div>
+            <button class="icon-button" id="closeStopModalButton" type="button" title="Close stop editor" aria-label="Close stop editor">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </div>
+
+          <label>
+            <span>Location</span>
+            <input id="stopTitle" type="text" placeholder="Reykjavik food walk" required />
+          </label>
+
+          <div class="field-grid two">
+            <label>
+              <span>Start date</span>
+              <input id="stopDate" type="date" required />
+            </label>
+            <label>
+              <span>Start time</span>
+              <input id="stopTime" type="time" required />
+            </label>
+          </div>
+
+          <div class="field-grid two">
+            <label>
+              <span>End date</span>
+              <input id="stopEndDate" type="date" required />
+            </label>
+            <label>
+              <span>End time</span>
+              <input id="stopEndTime" type="time" required />
+            </label>
+          </div>
+
+          <div class="field-grid two">
+            <label>
+              <span>Type</span>
+              <select id="stopType">
+                <option value="flight">Flight</option>
+                <option value="stay">Stay</option>
+                <option value="food">Food</option>
+                <option value="sight">Sight</option>
+                <option value="drive">Drive</option>
+                <option value="waiting">Waiting</option>
+                <option value="note">Note</option>
+              </select>
+            </label>
+            <div class="duration-readout">
+              <span>Length</span>
+              <strong id="stopLengthPreview">1h 30m</strong>
+            </div>
+          </div>
+
+          <label>
+            <span>Time entered as</span>
+            <select id="stopZone"></select>
+          </label>
+
+          <label>
+            <span>Notes</span>
+            <textarea id="stopNotes" rows="4" placeholder="Confirmation numbers, driving notes, weather backup..."></textarea>
+          </label>
+
+          <div class="upload-box">
+            <label for="stopAttachments">
+              <span>Attachments</span>
+              <strong>Drop photos or files</strong>
+            </label>
+            <input id="stopAttachments" type="file" multiple />
+            <div class="attachment-list compact" id="draftAttachments" aria-live="polite"></div>
+          </div>
+
+          <div class="modal-actions">
+            <button class="text-button" id="clearFormButton" type="button">Clear</button>
+            <button class="primary-button" type="submit" id="saveStopButton">
+              <span>Save stop</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12h14" />
+                <path d="m13 6 6 6-6 6" />
+              </svg>
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <input id="importInput" type="file" accept="application/json,.json" hidden />

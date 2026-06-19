@@ -379,13 +379,15 @@ label span,
 
 .cloud-panel,
 .form-section,
+.stop-launch-panel,
 .stop-form,
 .insight-panel section {
   padding: 16px;
 }
 
 .cloud-panel,
-.form-section + .stop-form {
+.form-section,
+.stop-launch-panel {
   border-top: 1px solid var(--line);
 }
 
@@ -400,6 +402,18 @@ label span,
   font-size: 12px;
   font-weight: 700;
   line-height: 1.35;
+}
+
+.stop-launch-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.stop-launch-panel p {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .cloud-auth,
@@ -521,6 +535,67 @@ button:disabled {
 .stop-form {
   display: grid;
   gap: 12px;
+}
+
+.modal-open {
+  overflow: hidden;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  padding: 20px;
+  place-items: center;
+  background: rgba(12, 32, 36, 0.42);
+  backdrop-filter: blur(8px);
+}
+
+.modal-panel {
+  width: min(720px, 100%);
+  max-height: min(860px, calc(100vh - 40px));
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.modal-panel .stop-form {
+  padding: 18px;
+}
+
+.modal-heading,
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-heading {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-heading span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.modal-heading h2 {
+  margin: 3px 0 0;
+  font-size: 22px;
+  font-weight: 840;
+  line-height: 1.1;
+}
+
+.modal-actions {
+  padding-top: 4px;
 }
 
 label {
@@ -921,10 +996,39 @@ textarea:focus {
   background: #ffffff;
 }
 
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.calendar-toolbar strong,
+.calendar-toolbar span {
+  display: block;
+}
+
+.calendar-toolbar strong {
+  font-size: 16px;
+  font-weight: 840;
+}
+
+.calendar-toolbar span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.compact-segmented button {
+  min-width: 62px;
+}
+
 .calendar-grid {
   display: grid;
-  grid-template-columns: 64px repeat(var(--day-count), minmax(130px, 1fr));
-  min-width: 720px;
+  grid-template-columns: 58px repeat(var(--day-count), minmax(84px, 1fr));
+  min-width: 0;
 }
 
 .calendar-scroll {
@@ -1002,6 +1106,93 @@ textarea:focus {
 .calendar-event span {
   display: block;
   margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 780;
+}
+
+.month-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(92px, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffff;
+}
+
+.month-weekday,
+.month-cell {
+  min-width: 0;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.month-weekday {
+  min-height: 38px;
+  padding: 10px;
+  color: var(--muted);
+  background: #f8fcfc;
+  font-size: 11px;
+  font-weight: 820;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.month-cell {
+  min-height: 116px;
+  padding: 9px;
+  color: var(--ink);
+  background: #ffffff;
+  text-align: left;
+}
+
+.month-cell.active {
+  background: linear-gradient(180deg, #ffffff, #edf8f8);
+  box-shadow: inset 0 0 0 2px rgba(8, 123, 131, 0.22);
+}
+
+.month-cell.muted {
+  background: #f8fcfc;
+}
+
+.month-cell strong,
+.month-cell span {
+  display: block;
+}
+
+.month-cell strong {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.month-cell span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.month-events {
+  display: grid;
+  gap: 4px;
+  margin-top: 9px;
+}
+
+.month-events em {
+  overflow: hidden;
+  padding: 4px 5px;
+  border-left: 3px solid var(--teal);
+  border-radius: 3px;
+  color: var(--ink);
+  background: var(--surface-soft);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 780;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.month-events small {
   color: var(--muted);
   font-size: 10px;
   font-weight: 780;
@@ -1312,6 +1503,10 @@ textarea:focus {
   background: var(--green);
 }
 
+.rhythm-block.waiting {
+  background: #7b6fd0;
+}
+
 .attachment-list,
 .attachment-gallery {
   display: grid;
@@ -1489,7 +1684,8 @@ textarea:focus {
 
   .topbar,
   .workspace-header,
-  .view-options {
+  .view-options,
+  .calendar-toolbar {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1551,6 +1747,11 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
+  .month-calendar {
+    grid-template-columns: repeat(7, minmax(118px, 1fr));
+    overflow-x: auto;
+  }
+
   .insight-panel section + section {
     border-left: 0;
     border-top: 1px solid var(--line);
@@ -1558,6 +1759,34 @@ textarea:focus {
 }
 
 @media (max-width: 560px) {
+  .modal-backdrop {
+    align-items: end;
+    padding: 8px;
+  }
+
+  .modal-panel {
+    width: 100%;
+    max-height: calc(100vh - 16px);
+  }
+
+  .modal-panel .stop-form {
+    padding: 14px;
+  }
+
+  .modal-heading,
+  .modal-actions {
+    align-items: stretch;
+  }
+
+  .modal-actions {
+    flex-direction: column-reverse;
+  }
+
+  .modal-actions .primary-button,
+  .modal-actions .text-button {
+    width: 100%;
+  }
+
   .brand strong {
     font-size: 15px;
   }

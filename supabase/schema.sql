@@ -27,7 +27,7 @@ create table if not exists public.stops (
   id uuid primary key default gen_random_uuid(),
   trip_id uuid not null references public.trips(id) on delete cascade,
   title text not null,
-  stop_type text not null default 'note' check (stop_type in ('flight', 'stay', 'food', 'sight', 'drive', 'note')),
+  stop_type text not null default 'note' check (stop_type in ('flight', 'stay', 'food', 'sight', 'drive', 'waiting', 'note')),
   starts_at_utc timestamptz not null,
   ends_at_utc timestamptz not null,
   source_timezone text not null,
@@ -90,7 +90,7 @@ as $$
     where tm.trip_id = p_trip_id
       and tm.user_id = (select auth.uid())
   );
-$$ language sql security definer set search_path = '' stable;
+$$ language sql stable security definer set search_path = '';
 
 create or replace function public.join_trip_by_code(p_share_code text)
 returns uuid
@@ -117,14 +117,14 @@ begin
 end;
 $$ language plpgsql security definer set search_path = '';
 
-create or replace function public.storage_trip_id(p_name text)
+create or replace function public.storage_trip_id(p_storage_path text)
 returns uuid
 as $$
 declare
   v_parts text[];
   v_trip_id text;
 begin
-  v_parts = storage.foldername(p_name);
+  v_parts = storage.foldername(p_storage_path);
   if array_length(v_parts, 1) < 2 then
     return null;
   end if;
@@ -136,7 +136,7 @@ begin
 
   return v_trip_id::uuid;
 end;
-$$ language plpgsql security definer set search_path = '' stable;
+$$ language plpgsql stable security definer set search_path = '';
 
 alter table public.trips enable row level security;
 alter table public.trip_members enable row level security;

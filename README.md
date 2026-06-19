@@ -6,7 +6,9 @@ A Vercel + Supabase-ready itinerary maker for planning a US-to-Iceland trip acro
 
 - Multiple trips from the same account
 - Locations, start/end dates and times, notes, and attachments
+- Popup add/edit stop window
 - Timeline, calendar, and infographic trip-board views
+- Month, week, and day calendar modes
 - Google Maps route/list opening for all stop locations
 - Paired US/Iceland timezone displays
 - Login/signup gate before trip access when Supabase is configured
@@ -22,11 +24,16 @@ A Vercel + Supabase-ready itinerary maker for planning a US-to-Iceland trip acro
 1. Create a Supabase project.
 2. In Supabase SQL Editor, run `supabase/01-create-tables.sql`.
 3. Then run `supabase/02-security-policies.sql`.
-4. Run `supabase/check-setup.sql`. You should see all four public tables with `rowsecurity = true`, plus the private `itinerary-attachments` bucket.
-5. If you already ran an older version of the schema that used `duration_minutes`, run `supabase/migrate-start-end-times.sql`.
-6. In Authentication > Providers, keep Email enabled and allow new users to sign up.
-7. In Authentication > URL Configuration, set Site URL to your Vercel production URL and add your Vercel production and preview URLs to Redirect URLs.
-8. Keep the `itinerary-attachments` bucket private. The SQL file creates RLS policies for trip members.
+4. If Supabase reports `syntax error at end of input`, clear the editor and run these smaller files instead, in this order:
+   - `supabase/02a-functions.sql`
+   - `supabase/02b-table-policies.sql`
+   - `supabase/02c-storage-policies.sql`
+5. Run `supabase/check-setup.sql`. You should see all four public tables with `rowsecurity = true`, plus the private `itinerary-attachments` bucket.
+6. If you already ran an older version of the schema that used `duration_minutes`, run `supabase/migrate-start-end-times.sql`.
+7. If your Supabase project already existed before the `Waiting` stop type was added, run `supabase/migrate-waiting-stop-type.sql`.
+8. In Authentication > Providers, keep Email enabled and allow new users to sign up.
+9. In Authentication > URL Configuration, set Site URL to your Vercel production URL and add your Vercel production and preview URLs to Redirect URLs.
+10. Keep the `itinerary-attachments` bucket private. The SQL file creates RLS policies for trip members.
 
 `supabase/schema.sql` is still available as a combined setup file, but the two-step setup is easier to debug in the Supabase SQL Editor.
 
@@ -67,6 +74,8 @@ After deployment, add the deployed Vercel URL to Supabase Auth redirect settings
 4. Your partner opens the link, signs in, and joins the same shared trip.
 
 Use the trip selector under **Cloud sync** to switch between multiple local/cloud trips.
+
+Cloud changes autosave about one second after a change once the trip has been synced to Supabase. Another open device should reload the trip or refresh the page to pull the latest version; the app does not use live realtime presence yet.
 
 ## Local Mode
 
