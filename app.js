@@ -917,6 +917,7 @@ async function saveCloudSnapshot(options = {}) {
 
     await upsertCloudTrip(isNewTrip);
     await syncCloudStops();
+    await updateCloudSelectedStop();
     await syncCloudAttachments();
 
     state.cloud.lastSavedAt = new Date();
@@ -953,7 +954,7 @@ async function upsertCloudTrip(isNewTrip) {
     destination_zone: state.trip.destinationZone,
     active_view: state.trip.activeView,
     time_lens: state.trip.timeLens,
-    selected_stop_id: isUuid(state.trip.selectedId) ? state.trip.selectedId : null,
+    selected_stop_id: null,
     share_code: state.trip.shareCode,
     share_enabled: true
   };
@@ -983,6 +984,19 @@ async function upsertCloudTrip(isNewTrip) {
       });
     if (memberError) throw memberError;
   }
+}
+
+async function updateCloudSelectedStop() {
+  const selectedStopId = state.trip.stops.some((stop) => stop.id === state.trip.selectedId) && isUuid(state.trip.selectedId)
+    ? state.trip.selectedId
+    : null;
+
+  const { error } = await state.cloud.client
+    .from("trips")
+    .update({ selected_stop_id: selectedStopId })
+    .eq("id", state.trip.cloudId);
+
+  if (error) throw error;
 }
 
 async function syncCloudStops() {
