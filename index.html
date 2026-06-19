@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Iceland Itinerary Studio</title>
+    <title>Itinerary Studio</title>
     <meta
       name="description"
-      content="A GitHub Pages-friendly itinerary maker with calendar, timeline, timezone, notes, and attachment views."
+      content="A Vercel and Supabase-ready itinerary maker with calendar, timeline, timezone, notes, maps, and attachment views."
     />
     <link rel="icon" href="assets/iceland-panorama.png" />
     <link rel="stylesheet" href="styles.css" />
@@ -14,7 +14,7 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="#app" aria-label="Iceland Itinerary Studio home">
+        <a class="brand" href="#app" aria-label="Itinerary Studio home">
           <span class="brand-mark" aria-hidden="true">
             <svg viewBox="0 0 32 32" role="img">
               <path d="M4 21.7 10.7 10l5.1 8.3 3.4-5.1L28 21.7H4Z" />
@@ -23,7 +23,7 @@
             </svg>
           </span>
           <span>
-            <strong>Iceland Itinerary Studio</strong>
+            <strong>Itinerary Studio</strong>
             <small id="tripSubtitle">US to Iceland planner</small>
           </span>
         </a>
@@ -65,6 +65,12 @@
               <circle cx="17.5" cy="18" r="2.5" />
             </svg>
           </button>
+          <button class="icon-button" id="openMapsButton" type="button" title="Open places in Google Maps" aria-label="Open places in Google Maps">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 21s6-5.1 6-11a6 6 0 0 0-12 0c0 5.9 6 11 6 11Z" />
+              <circle cx="12" cy="10" r="2" />
+            </svg>
+          </button>
           <button class="icon-button" id="printButton" type="button" title="Print" aria-label="Print">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M7 8V3h10v5" />
@@ -84,6 +90,51 @@
               <input id="tripName" type="text" autocomplete="off" />
             </div>
           </div>
+
+          <section class="cloud-panel" aria-labelledby="cloudHeading">
+            <div class="section-heading">
+              <h2 id="cloudHeading">Cloud sync</h2>
+              <span id="cloudStatus" class="soft-tag">Local</span>
+            </div>
+            <p class="cloud-hint" id="cloudHint"></p>
+
+            <label>
+              <span>Trips</span>
+              <select id="tripSelect"></select>
+            </label>
+
+            <form class="cloud-auth" id="cloudAuthForm">
+              <label>
+                <span>Email</span>
+                <input id="cloudEmail" type="email" autocomplete="email" placeholder="you@example.com" />
+              </label>
+              <button class="primary-button compact-button" type="submit">Send sign-in link</button>
+            </form>
+
+            <div class="cloud-account" id="cloudAccount" hidden>
+              <div>
+                <span>Signed in</span>
+                <strong id="cloudUserLabel">Not connected</strong>
+              </div>
+              <div class="cloud-actions">
+                <button class="ghost-button" id="syncCloudButton" type="button">Sync now</button>
+                <button class="ghost-button" id="signOutButton" type="button">Sign out</button>
+              </div>
+            </div>
+
+            <form class="join-form" id="joinTripForm">
+              <label>
+                <span>Join code</span>
+                <input id="joinTripCode" type="text" inputmode="text" autocomplete="off" placeholder="Partner code" />
+              </label>
+              <button class="ghost-button" type="submit">Join trip</button>
+            </form>
+
+            <div class="share-code-box" id="shareCodeBox" hidden>
+              <span>Active share code</span>
+              <strong id="cloudShareCode">----</strong>
+            </div>
+          </section>
 
           <section class="form-section" aria-labelledby="timezoneHeading">
             <div class="section-heading">
@@ -115,12 +166,23 @@
 
             <div class="field-grid two">
               <label>
-                <span>Date</span>
+                <span>Start date</span>
                 <input id="stopDate" type="date" required />
               </label>
               <label>
-                <span>Time</span>
+                <span>Start time</span>
                 <input id="stopTime" type="time" required />
+              </label>
+            </div>
+
+            <div class="field-grid two">
+              <label>
+                <span>End date</span>
+                <input id="stopEndDate" type="date" required />
+              </label>
+              <label>
+                <span>End time</span>
+                <input id="stopEndTime" type="time" required />
               </label>
             </div>
 
@@ -136,19 +198,10 @@
                   <option value="note">Note</option>
                 </select>
               </label>
-              <label>
-                <span>Duration</span>
-                <select id="stopDuration">
-                  <option value="30">30 min</option>
-                  <option value="60">1 hour</option>
-                  <option value="90">1.5 hours</option>
-                  <option value="120">2 hours</option>
-                  <option value="180">3 hours</option>
-                  <option value="240">4 hours</option>
-                  <option value="360">6 hours</option>
-                  <option value="480">8 hours</option>
-                </select>
-              </label>
+              <div class="duration-readout">
+                <span>Length</span>
+                <strong id="stopLengthPreview">1h 30m</strong>
+              </div>
             </div>
 
             <label>

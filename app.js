@@ -1,4 +1,6 @@
 const STORAGE_KEY = "iceland-itinerary-studio-v1";
+const SUPABASE_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+const DEFAULT_STORAGE_BUCKET = "itinerary-attachments";
 
 const zones = [
   { id: "America/New_York", label: "Eastern" },
@@ -20,76 +22,99 @@ const typeMeta = {
 
 const fallbackTrip = {
   name: "Iceland Ring Road Preview",
+  localId: "local-preview-trip",
   originZone: "America/Chicago",
   destinationZone: "Atlantic/Reykjavik",
   activeView: "timeline",
   timeLens: "both",
-  selectedId: "seed-2",
+  selectedId: "22222222-2222-4222-8222-222222222222",
   stops: [
     {
-      id: "seed-1",
+      id: "11111111-1111-4111-8111-111111111111",
       title: "Flight to Keflavik",
       type: "flight",
-      date: "2026-06-21",
-      time: "19:35",
+      startDate: "2026-06-21",
+      startTime: "19:35",
+      endDate: "2026-06-22",
+      endTime: "05:35",
       zone: "America/Chicago",
-      duration: 420,
       notes: "Overnight flight. Keep passport, chargers, and layers easy to reach.",
       attachments: []
     },
     {
-      id: "seed-2",
+      id: "22222222-2222-4222-8222-222222222222",
       title: "Reykjavik check-in",
       type: "stay",
-      date: "2026-06-22",
-      time: "09:40",
+      startDate: "2026-06-22",
+      startTime: "09:40",
+      endDate: "2026-06-22",
+      endTime: "11:10",
       zone: "Atlantic/Reykjavik",
-      duration: 90,
       notes: "Drop bags, reset watches to Iceland time, coffee nearby.",
       attachments: []
     },
     {
-      id: "seed-3",
+      id: "33333333-3333-4333-8333-333333333333",
       title: "Blue Lagoon",
       type: "sight",
-      date: "2026-06-22",
-      time: "14:00",
+      startDate: "2026-06-22",
+      startTime: "14:00",
+      endDate: "2026-06-22",
+      endTime: "17:00",
       zone: "Atlantic/Reykjavik",
-      duration: 180,
       notes: "Pre-booked entry window. Pack swimsuit in day bag.",
       attachments: []
     },
     {
-      id: "seed-4",
+      id: "44444444-4444-4444-8444-444444444444",
       title: "Golden Circle",
       type: "drive",
-      date: "2026-06-23",
-      time: "08:30",
+      startDate: "2026-06-23",
+      startTime: "08:30",
+      endDate: "2026-06-23",
+      endTime: "16:30",
       zone: "Atlantic/Reykjavik",
-      duration: 480,
       notes: "Thingvellir, Geysir, Gullfoss. Leave room for weather delays.",
       attachments: []
     },
     {
-      id: "seed-5",
+      id: "55555555-5555-4555-8555-555555555555",
       title: "Reykjavik dinner notes",
       type: "food",
-      date: "2026-06-23",
-      time: "19:15",
+      startDate: "2026-06-23",
+      startTime: "19:15",
+      endDate: "2026-06-23",
+      endTime: "20:45",
       zone: "Atlantic/Reykjavik",
-      duration: 90,
       notes: "Try seafood or lamb. Save receipts for budget tracking.",
       attachments: []
     }
   ]
 };
 
+const initialStore = loadTripStore();
 const state = {
-  trip: loadTrip(),
+  trips: initialStore.trips,
+  activeTripKey: initialStore.activeTripKey,
+  trip: initialStore.activeTrip,
   draftAttachments: [],
   editingId: null,
   activeDay: null,
-  toastTimer: null
+  toastTimer: null,
+  cloud: {
+    configured: false,
+    loading: true,
+    client: null,
+    session: null,
+    user: null,
+    bucket: DEFAULT_STORAGE_BUCKET,
+    syncing: false,
+    saveTimer: null,
+    suppressSave: false,
+    lastSavedAt: null,
+    lastError: "",
+    trips: []
+  }
 };
 
 const el = {};
@@ -102,6 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
   render();
   updateClocks();
   setInterval(updateClocks, 30000);
+  initCloud();
 });
 
 function cacheElements() {
@@ -112,7 +138,21 @@ function cacheElements() {
     "exportJsonButton",
     "exportIcsButton",
     "shareButton",
+    "openMapsButton",
     "printButton",
+    "cloudStatus",
+    "cloudHint",
+    "cloudAuthForm",
+    "cloudEmail",
+    "cloudAccount",
+    "cloudUserLabel",
+    "syncCloudButton",
+    "signOutButton",
+    "joinTripForm",
+    "joinTripCode",
+    "shareCodeBox",
+    "cloudShareCode",
+    "tripSelect",
     "tripName",
     "originZone",
     "destinationZone",
@@ -123,8 +163,10 @@ function cacheElements() {
     "stopTitle",
     "stopDate",
     "stopTime",
+    "stopEndDate",
+    "stopEndTime",
     "stopType",
-    "stopDuration",
+    "stopLengthPreview",
     "stopZone",
     "stopNotes",
     "stopAttachments",
@@ -190,14 +232,34 @@ function bindEvents() {
     saveStopFromForm();
   });
 
+  el.cloudAuthForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    signInToCloud();
+  });
+  el.syncCloudButton.addEventListener("click", () => syncCloudNow());
+  el.signOutButton.addEventListener("click", () => signOutOfCloud());
+  el.joinTripForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    joinTripByCode();
+  });
+  el.tripSelect.addEventListener("change", () => switchTrip(el.tripSelect.value));
+
   el.clearFormButton.addEventListener("click", () => resetForm());
   el.stopAttachments.addEventListener("change", (event) => readFiles(event.target.files));
+  ["stopDate", "stopTime"].forEach((id) => {
+    el[id].addEventListener("change", ensureValidEndFromStart);
+  });
+  ["stopDate", "stopTime", "stopEndDate", "stopEndTime", "stopZone"].forEach((id) => {
+    el[id].addEventListener("change", renderStopLengthPreview);
+    el[id].addEventListener("input", renderStopLengthPreview);
+  });
   el.newTripButton.addEventListener("click", newTrip);
   el.importButton.addEventListener("click", () => el.importInput.click());
   el.importInput.addEventListener("change", importTrip);
   el.exportJsonButton.addEventListener("click", exportJson);
   el.exportIcsButton.addEventListener("click", exportIcs);
   el.shareButton.addEventListener("click", shareTrip);
+  el.openMapsButton.addEventListener("click", openGoogleMapsList);
   el.printButton.addEventListener("click", () => window.print());
 
   document.querySelectorAll("[data-view]").forEach((button) => {
@@ -223,6 +285,7 @@ function bindEvents() {
     if (action.dataset.action === "select") selectStop(id);
     if (action.dataset.action === "edit") editStop(id);
     if (action.dataset.action === "delete") deleteStop(id);
+    if (action.dataset.action === "open-maps") openGoogleMapsList();
     if (action.dataset.action === "remove-draft-attachment") removeDraftAttachment(action.dataset.index);
   });
 }
@@ -244,45 +307,120 @@ function setInitialFormValues() {
   resetForm(false);
 }
 
-function loadTrip() {
+function loadTripStore() {
   const hashTrip = readTripFromHash();
-  if (hashTrip) return normalizeTrip(hashTrip);
+  if (hashTrip) {
+    const activeTrip = normalizeTrip(hashTrip);
+    return {
+      trips: [activeTrip],
+      activeTripKey: activeTrip.localId,
+      activeTrip
+    };
+  }
 
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return normalizeTrip(JSON.parse(stored));
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed.trips)) {
+        const trips = parsed.trips.map(normalizeTrip);
+        const activeTrip =
+          trips.find((trip) => trip.localId === parsed.activeTripKey || trip.cloudId === parsed.activeCloudId) ||
+          trips[0] ||
+          normalizeTrip(fallbackTrip);
+        return {
+          trips: trips.length ? trips : [activeTrip],
+          activeTripKey: activeTrip.localId,
+          activeTrip
+        };
+      }
+
+      const activeTrip = normalizeTrip(parsed);
+      return {
+        trips: [activeTrip],
+        activeTripKey: activeTrip.localId,
+        activeTrip
+      };
+    }
   } catch (error) {
     console.warn("Unable to read stored trip", error);
   }
-  return normalizeTrip(fallbackTrip);
+
+  const activeTrip = normalizeTrip(fallbackTrip);
+  return {
+    trips: [activeTrip],
+    activeTripKey: activeTrip.localId,
+    activeTrip
+  };
 }
 
 function normalizeTrip(trip) {
+  const incomingLocalId = trip?.localId;
   const normalized = {
     ...fallbackTrip,
     ...trip,
     stops: Array.isArray(trip?.stops) ? trip.stops : fallbackTrip.stops
   };
+  const idMap = new Map();
 
+  normalized.localId = incomingLocalId || createId();
+  normalized.cloudId = isUuid(normalized.cloudId) ? normalized.cloudId : null;
+  normalized.cloudOwnerId = isUuid(normalized.cloudOwnerId) ? normalized.cloudOwnerId : null;
+  normalized.shareCode = normalized.shareCode || "";
   normalized.originZone = isKnownZone(normalized.originZone) && normalized.originZone !== "Atlantic/Reykjavik"
     ? normalized.originZone
     : "America/Chicago";
   normalized.destinationZone = isKnownZone(normalized.destinationZone) ? normalized.destinationZone : "Atlantic/Reykjavik";
   normalized.activeView = ["timeline", "calendar", "board"].includes(normalized.activeView) ? normalized.activeView : "timeline";
   normalized.timeLens = ["both", "origin", "destination"].includes(normalized.timeLens) ? normalized.timeLens : "both";
-  normalized.stops = normalized.stops.map((stop) => ({
-    id: stop.id || createId(),
-    title: stop.title || "Untitled stop",
-    type: typeMeta[stop.type] ? stop.type : "note",
-    date: stop.date || todayIso(),
-    time: stop.time || "09:00",
-    zone: isKnownZone(stop.zone) ? stop.zone : normalized.destinationZone,
-    duration: Number(stop.duration) || 60,
-    notes: stop.notes || "",
-    attachments: Array.isArray(stop.attachments) ? stop.attachments : []
-  }));
-  normalized.selectedId = normalized.stops.some((stop) => stop.id === normalized.selectedId)
-    ? normalized.selectedId
+
+  normalized.stops = normalized.stops.map((stop) => {
+    const incomingId = stop.id || "";
+    const stopId = isUuid(incomingId) ? incomingId : createId();
+    idMap.set(incomingId, stopId);
+    const startDate = stop.startDate || stop.date || todayIso();
+    const startTime = stop.startTime || stop.time || "09:00";
+    const inferredEnd = inferEndDateTime(
+      startDate,
+      startTime,
+      isKnownZone(stop.zone) ? stop.zone : normalized.destinationZone,
+      Number(stop.duration || stop.durationMinutes || 90)
+    );
+    let endDate = stop.endDate || inferredEnd.date;
+    let endTime = stop.endTime || inferredEnd.time;
+    if (zonedTimeToUtc(endDate, endTime, isKnownZone(stop.zone) ? stop.zone : normalized.destinationZone) <= zonedTimeToUtc(startDate, startTime, isKnownZone(stop.zone) ? stop.zone : normalized.destinationZone)) {
+      endDate = inferredEnd.date;
+      endTime = inferredEnd.time;
+    }
+    return {
+      id: stopId,
+      title: stop.title || "Untitled stop",
+      type: typeMeta[stop.type] ? stop.type : "note",
+      startDate,
+      startTime,
+      endDate,
+      endTime,
+      date: startDate,
+      time: startTime,
+      zone: isKnownZone(stop.zone) ? stop.zone : normalized.destinationZone,
+      notes: stop.notes || "",
+      attachments: Array.isArray(stop.attachments)
+        ? stop.attachments.map((attachment) => ({
+            id: isUuid(attachment.id) ? attachment.id : createId(),
+            name: attachment.name || "Attachment",
+            type: attachment.type || attachment.mimeType || "application/octet-stream",
+            size: Number(attachment.size || attachment.sizeBytes || 0),
+            dataUrl: attachment.dataUrl || "",
+            signedUrl: attachment.signedUrl || attachment.publicUrl || "",
+            storagePath: attachment.storagePath || attachment.storage_path || ""
+          }))
+        : []
+    };
+  });
+
+  const selectedId = idMap.get(normalized.selectedId) || normalized.selectedId;
+  normalized.selectedId = normalized.stops.some((stop) => stop.id === selectedId)
+    ? selectedId
     : normalized.stops[0]?.id || null;
   return normalized;
 }
@@ -292,15 +430,39 @@ function isKnownZone(zone) {
 }
 
 function saveTrip() {
+  persistLocalTrip();
+  scheduleCloudSave();
+}
+
+function persistLocalTrip() {
+  upsertActiveTripInStore();
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.trip));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        activeTripKey: state.trip.localId,
+        activeCloudId: state.trip.cloudId || null,
+        trips: state.trips.map(sanitizeTripForLocal)
+      })
+    );
   } catch (error) {
     showToast("Storage is full. Export JSON before adding more attachments.");
   }
 }
 
+function upsertActiveTripInStore() {
+  const index = state.trips.findIndex((trip) => trip.localId === state.trip.localId);
+  if (index >= 0) {
+    state.trips[index] = state.trip;
+  } else {
+    state.trips.push(state.trip);
+  }
+  state.activeTripKey = state.trip.localId;
+}
+
 function render() {
   renderHeader();
+  renderCloudPanel();
   renderDayStrip();
   renderQuickStats();
   renderViews();
@@ -317,14 +479,531 @@ function renderHeader() {
     : "No dates yet";
 
   el.tripName.value = state.trip.name;
-  el.tripSubtitle.textContent = `${stops.length} stops · ${range}`;
+  el.tripSubtitle.textContent = `${stops.length} stops - ${range}`;
   el.workspaceTitle.textContent = state.trip.name || "Iceland route, visually managed";
   el.workspaceMeta.textContent = stops.length
-    ? `${range} · Calendar and timeline shown in ${zoneLabel(state.trip.destinationZone)} with paired ${zoneLabel(state.trip.originZone)} conversions.`
+    ? `${range} - Calendar and timeline shown in ${zoneLabel(state.trip.destinationZone)} with paired ${zoneLabel(state.trip.originZone)} conversions.`
     : "Add locations, dates, times, notes, and files to start shaping the trip.";
   el.originZone.value = state.trip.originZone;
   el.destinationZone.value = state.trip.destinationZone;
   el.zoneDelta.textContent = zoneDeltaLabel();
+}
+
+function renderCloudPanel() {
+  if (!el.cloudStatus) return;
+  const cloud = state.cloud;
+  const signedIn = Boolean(cloud.user);
+  const hasCloudTrip = Boolean(state.trip.cloudId);
+
+  let label = "Local";
+  if (cloud.loading) label = "Checking";
+  else if (!cloud.configured) label = "Setup needed";
+  else if (cloud.syncing) label = "Syncing";
+  else if (cloud.lastError) label = "Error";
+  else if (signedIn && hasCloudTrip) label = "Cloud saved";
+  else if (signedIn) label = "Signed in";
+  else label = "Sign in";
+
+  el.cloudStatus.textContent = label;
+  el.cloudHint.textContent = cloudHintText();
+  renderTripSelect();
+  el.cloudAuthForm.hidden = !cloud.configured || signedIn;
+  el.cloudAccount.hidden = !signedIn;
+  el.joinTripForm.hidden = !cloud.configured || !signedIn;
+  el.shareCodeBox.hidden = !signedIn || !state.trip.shareCode;
+  el.syncCloudButton.disabled = !signedIn || cloud.syncing;
+  el.signOutButton.disabled = cloud.syncing;
+  el.cloudUserLabel.textContent = cloud.user?.email || "Not connected";
+  el.cloudShareCode.textContent = state.trip.shareCode || "----";
+
+  if (!cloud.configured && !cloud.loading) {
+    el.cloudUserLabel.textContent = "Add Supabase env vars in Vercel";
+  }
+}
+
+function renderTripSelect() {
+  const localOptions = state.trips.map((trip) => `
+    <option value="local:${trip.localId}">${escapeHtml(trip.name || "Untitled trip")}</option>
+  `);
+  const localCloudIds = new Set(state.trips.map((trip) => trip.cloudId).filter(Boolean));
+  const cloudOptions = state.cloud.trips
+    .filter((trip) => !localCloudIds.has(trip.id))
+    .map((trip) => `
+      <option value="cloud:${trip.id}">${escapeHtml(trip.name || "Cloud trip")}</option>
+    `);
+  el.tripSelect.innerHTML = [...localOptions, ...cloudOptions].join("");
+  el.tripSelect.value = `local:${state.trip.localId}`;
+}
+
+function cloudHintText() {
+  const cloud = state.cloud;
+  if (cloud.loading) return "Checking Vercel cloud configuration.";
+  if (!cloud.configured) return "Add Supabase env vars in Vercel to enable shared sync.";
+  if (!cloud.user) return "Sign in to sync this itinerary across devices.";
+  if (cloud.syncing) return "Saving itinerary changes.";
+  if (cloud.lastError) return cloud.lastError;
+  if (state.trip.cloudId) return "Shared cloud trip is active.";
+  return "Use Sync now to save this local trip to Supabase.";
+}
+
+async function initCloud() {
+  try {
+    const config = await loadCloudConfig();
+    state.cloud.loading = false;
+    state.cloud.configured = Boolean(config.enabled);
+    state.cloud.bucket = config.storageBucket || DEFAULT_STORAGE_BUCKET;
+
+    if (!state.cloud.configured) {
+      renderCloudPanel();
+      return;
+    }
+
+    const { createClient } = await import(SUPABASE_CDN);
+    state.cloud.client = createClient(config.supabaseUrl, config.supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        persistSession: true
+      }
+    });
+
+    const { data } = await state.cloud.client.auth.getSession();
+    await handleCloudSession(data.session, false);
+    state.cloud.client.auth.onAuthStateChange((_event, session) => {
+      handleCloudSession(session, true);
+    });
+  } catch (error) {
+    state.cloud.loading = false;
+    state.cloud.configured = false;
+    state.cloud.lastError = "Cloud setup unavailable";
+    renderCloudPanel();
+  }
+}
+
+async function loadCloudConfig() {
+  const response = await fetch("/api/config", { cache: "no-store" });
+  if (!response.ok) {
+    return { enabled: false };
+  }
+  return response.json();
+}
+
+async function handleCloudSession(session, shouldLoadTrip) {
+  state.cloud.session = session || null;
+  state.cloud.user = session?.user || null;
+  state.cloud.lastError = "";
+  renderCloudPanel();
+
+  if (!state.cloud.user) return;
+
+  const joinCode = readJoinCodeFromHash();
+  if (joinCode) {
+    await joinTripByCode(joinCode, { silent: true });
+    return;
+  }
+
+  if (shouldLoadTrip || !state.trip.cloudId) {
+    await loadCloudTrips();
+  }
+}
+
+async function signInToCloud() {
+  if (!state.cloud.client) {
+    showToast("Add Supabase env vars in Vercel first.");
+    return;
+  }
+
+  const email = el.cloudEmail.value.trim();
+  if (!email) {
+    showToast("Enter your email first.");
+    return;
+  }
+
+  const { error } = await state.cloud.client.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: window.location.href.split("#")[0]
+    }
+  });
+
+  if (error) {
+    state.cloud.lastError = error.message;
+    renderCloudPanel();
+    showToast("Could not send the sign-in link.");
+    return;
+  }
+
+  showToast("Check your email for the sign-in link.");
+}
+
+async function signOutOfCloud() {
+  if (!state.cloud.client) return;
+  await state.cloud.client.auth.signOut();
+  state.cloud.session = null;
+  state.cloud.user = null;
+  renderCloudPanel();
+  showToast("Signed out. Local fallback is still here.");
+}
+
+async function loadCloudTrips() {
+  if (!state.cloud.client || !state.cloud.user) return;
+
+  const { data, error } = await state.cloud.client
+    .from("trips")
+    .select("id,name,share_code,updated_at")
+    .order("updated_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    setCloudError(error);
+    return;
+  }
+
+  state.cloud.trips = data || [];
+  renderCloudPanel();
+
+  if (!data?.length) {
+    renderCloudPanel();
+    showToast("Signed in. Use Sync now to save this trip to the cloud.");
+    return;
+  }
+
+  const preferred = state.trip.cloudId && data.some((trip) => trip.id === state.trip.cloudId)
+    ? state.trip.cloudId
+    : data[0].id;
+  await loadCloudTripById(preferred);
+}
+
+async function loadCloudTripById(tripId) {
+  if (!state.cloud.client || !state.cloud.user) return;
+
+  state.cloud.syncing = true;
+  renderCloudPanel();
+  const client = state.cloud.client;
+  const [{ data: trip, error: tripError }, { data: stops, error: stopsError }, { data: attachments, error: attachmentsError }] =
+    await Promise.all([
+      client.from("trips").select("*").eq("id", tripId).single(),
+      client.from("stops").select("*").eq("trip_id", tripId).order("starts_at_utc", { ascending: true }),
+      client.from("attachments").select("*").eq("trip_id", tripId)
+    ]);
+
+  if (tripError || stopsError || attachmentsError) {
+    state.cloud.syncing = false;
+    setCloudError(tripError || stopsError || attachmentsError);
+    return;
+  }
+
+  const signedAttachments = await withSignedAttachmentUrls(attachments || []);
+  state.cloud.suppressSave = true;
+  state.trip = normalizeTrip(cloudRowsToTrip(trip, stops || [], signedAttachments));
+  state.activeDay = null;
+  persistLocalTrip();
+  state.cloud.suppressSave = false;
+  state.cloud.syncing = false;
+  state.cloud.lastSavedAt = new Date();
+  setInitialFormValues();
+  render();
+  showToast("Cloud trip loaded.");
+}
+
+function cloudRowsToTrip(trip, stops, attachments) {
+  const grouped = new Map();
+  attachments.forEach((attachment) => {
+    if (!grouped.has(attachment.stop_id)) grouped.set(attachment.stop_id, []);
+    grouped.get(attachment.stop_id).push({
+      id: attachment.id,
+      name: attachment.name,
+      type: attachment.mime_type,
+      size: Number(attachment.size_bytes || 0),
+      storagePath: attachment.storage_path,
+      signedUrl: attachment.signedUrl || ""
+    });
+  });
+
+  return {
+    name: trip.name,
+    cloudId: trip.id,
+    cloudOwnerId: trip.owner_user_id,
+    shareCode: trip.share_code,
+    originZone: trip.origin_zone,
+    destinationZone: trip.destination_zone,
+    activeView: trip.active_view,
+    timeLens: trip.time_lens,
+    selectedId: trip.selected_stop_id,
+    stops: stops.map((stop) => {
+      const dateTime = stop.local_date && stop.local_time
+        ? { date: stop.local_date, time: stop.local_time.slice(0, 5) }
+        : formatParts(new Date(stop.starts_at_utc), stop.source_timezone);
+      const endParts = stop.local_end_date && stop.local_end_time
+        ? { date: stop.local_end_date, time: stop.local_end_time.slice(0, 5) }
+        : stop.ends_at_utc
+          ? formatParts(new Date(stop.ends_at_utc), stop.source_timezone)
+          : inferEndDateTime(dateTime.date, dateTime.time, stop.source_timezone, Number(stop.duration_minutes || 90));
+      return {
+        id: stop.id,
+        title: stop.title,
+        type: stop.stop_type,
+        startDate: dateTime.date,
+        startTime: dateTime.time,
+        endDate: endParts.date,
+        endTime: endParts.time,
+        date: dateTime.date,
+        time: dateTime.time,
+        zone: stop.source_timezone,
+        notes: stop.notes || "",
+        attachments: grouped.get(stop.id) || []
+      };
+    })
+  };
+}
+
+async function withSignedAttachmentUrls(attachments) {
+  if (!attachments.length || !state.cloud.client) return attachments;
+  const results = await Promise.all(
+    attachments.map(async (attachment) => {
+      const { data } = await state.cloud.client.storage
+        .from(state.cloud.bucket)
+        .createSignedUrl(attachment.storage_path, 60 * 60);
+      return {
+        ...attachment,
+        signedUrl: data?.signedUrl || ""
+      };
+    })
+  );
+  return results;
+}
+
+function scheduleCloudSave() {
+  if (state.cloud.suppressSave || !state.cloud.client || !state.cloud.user) return;
+  clearTimeout(state.cloud.saveTimer);
+  state.cloud.saveTimer = setTimeout(() => {
+    saveCloudSnapshot();
+  }, 900);
+}
+
+async function syncCloudNow() {
+  await saveCloudSnapshot({ forceCreate: true, showDone: true });
+}
+
+async function saveCloudSnapshot(options = {}) {
+  if (!state.cloud.client || !state.cloud.user || state.cloud.syncing) return;
+
+  state.cloud.syncing = true;
+  state.cloud.lastError = "";
+  renderCloudPanel();
+
+  try {
+    const isNewTrip = !state.trip.cloudId || !state.trip.cloudOwnerId;
+    const cloudId = state.trip.cloudId || createId();
+    state.trip.cloudId = cloudId;
+    if (!state.trip.shareCode) state.trip.shareCode = createShareCode();
+
+    await upsertCloudTrip(isNewTrip);
+    await syncCloudStops();
+    await syncCloudAttachments();
+
+    state.cloud.lastSavedAt = new Date();
+    upsertCloudTripSummary();
+    persistLocalTrip();
+    render();
+    if (options.showDone || isNewTrip) showToast("Trip synced to cloud.");
+  } catch (error) {
+    setCloudError(error);
+  } finally {
+    state.cloud.syncing = false;
+    renderCloudPanel();
+  }
+}
+
+function upsertCloudTripSummary() {
+  if (!state.trip.cloudId) return;
+  const summary = {
+    id: state.trip.cloudId,
+    name: state.trip.name,
+    share_code: state.trip.shareCode,
+    updated_at: new Date().toISOString()
+  };
+  const index = state.cloud.trips.findIndex((trip) => trip.id === summary.id);
+  if (index >= 0) state.cloud.trips[index] = summary;
+  else state.cloud.trips.unshift(summary);
+}
+
+async function upsertCloudTrip(isNewTrip) {
+  const tripRow = {
+    id: state.trip.cloudId,
+    name: state.trip.name,
+    origin_zone: state.trip.originZone,
+    destination_zone: state.trip.destinationZone,
+    active_view: state.trip.activeView,
+    time_lens: state.trip.timeLens,
+    selected_stop_id: isUuid(state.trip.selectedId) ? state.trip.selectedId : null,
+    share_code: state.trip.shareCode,
+    share_enabled: true
+  };
+
+  if (isNewTrip || !state.trip.cloudOwnerId) {
+    tripRow.owner_user_id = state.cloud.user.id;
+  }
+
+  const { data, error } = await state.cloud.client
+    .from("trips")
+    .upsert(tripRow)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+
+  state.trip.cloudOwnerId = data.owner_user_id;
+  state.trip.shareCode = data.share_code;
+
+  if (isNewTrip) {
+    const { error: memberError } = await state.cloud.client
+      .from("trip_members")
+      .upsert({
+        trip_id: state.trip.cloudId,
+        user_id: state.cloud.user.id,
+        role: "owner"
+      });
+    if (memberError) throw memberError;
+  }
+}
+
+async function syncCloudStops() {
+  const stops = sortedStops();
+  const rows = stops.map((stop, index) => ({
+    id: stop.id,
+    trip_id: state.trip.cloudId,
+    title: stop.title,
+    stop_type: stop.type,
+    starts_at_utc: toUtc(stop).toISOString(),
+    ends_at_utc: toEndUtc(stop).toISOString(),
+    source_timezone: stop.zone,
+    local_start_date: stop.startDate,
+    local_start_time: stop.startTime,
+    local_end_date: stop.endDate,
+    local_end_time: stop.endTime,
+    notes: stop.notes || "",
+    position: index
+  }));
+
+  if (rows.length) {
+    const { error } = await state.cloud.client.from("stops").upsert(rows);
+    if (error) throw error;
+  }
+
+  const keepIds = rows.map((row) => row.id);
+  let deleteQuery = state.cloud.client.from("stops").delete().eq("trip_id", state.trip.cloudId);
+  if (keepIds.length) deleteQuery = deleteQuery.not("id", "in", `(${keepIds.join(",")})`);
+  const { error: deleteError } = await deleteQuery;
+  if (deleteError) throw deleteError;
+}
+
+async function syncCloudAttachments() {
+  const attachments = [];
+  for (const stop of state.trip.stops) {
+    for (const attachment of stop.attachments) {
+      if (!attachment.storagePath) {
+        await uploadAttachmentFile(stop, attachment);
+      }
+      attachments.push({
+        id: attachment.id,
+        trip_id: state.trip.cloudId,
+        stop_id: stop.id,
+        created_by: state.cloud.user.id,
+        name: attachment.name,
+        mime_type: attachment.type || "application/octet-stream",
+        size_bytes: Number(attachment.size || 0),
+        storage_path: attachment.storagePath
+      });
+    }
+  }
+
+  if (attachments.length) {
+    const { error } = await state.cloud.client.from("attachments").upsert(attachments);
+    if (error) throw error;
+  }
+
+  const keepIds = attachments.map((attachment) => attachment.id);
+  let deleteQuery = state.cloud.client.from("attachments").delete().eq("trip_id", state.trip.cloudId);
+  if (keepIds.length) deleteQuery = deleteQuery.not("id", "in", `(${keepIds.join(",")})`);
+  const { error: deleteError } = await deleteQuery;
+  if (deleteError) throw deleteError;
+}
+
+async function uploadAttachmentFile(stop, attachment) {
+  const source = attachment.file || (attachment.dataUrl ? dataUrlToBlob(attachment.dataUrl) : null);
+  if (!source) {
+    throw new Error(`Missing file data for ${attachment.name}`);
+  }
+
+  const path = [
+    state.cloud.user.id,
+    state.trip.cloudId,
+    stop.id,
+    `${attachment.id}-${safeFileName(attachment.name)}`
+  ].join("/");
+
+  const { error } = await state.cloud.client.storage
+    .from(state.cloud.bucket)
+    .upload(path, source, {
+      contentType: attachment.type || "application/octet-stream",
+      upsert: true
+    });
+
+  if (error) throw error;
+
+  attachment.storagePath = path;
+  attachment.dataUrl = attachment.type?.startsWith("image/") ? attachment.dataUrl : "";
+  const { data } = await state.cloud.client.storage.from(state.cloud.bucket).createSignedUrl(path, 60 * 60);
+  attachment.signedUrl = data?.signedUrl || "";
+}
+
+async function joinTripByCode(code = el.joinTripCode.value, options = {}) {
+  if (!state.cloud.client || !state.cloud.user) {
+    showToast("Sign in before joining a trip.");
+    return;
+  }
+
+  const shareCode = String(code || "").trim().toUpperCase();
+  if (!shareCode) {
+    showToast("Enter a trip code first.");
+    return;
+  }
+
+  state.cloud.syncing = true;
+  renderCloudPanel();
+  const { data, error } = await state.cloud.client.rpc("join_trip_by_code", {
+    p_share_code: shareCode
+  });
+
+  if (error) {
+    state.cloud.syncing = false;
+    setCloudError(error);
+    showToast("That trip code did not work.");
+    return;
+  }
+
+  el.joinTripCode.value = "";
+  await loadCloudTripById(data);
+  if (!options.silent) showToast("Joined shared trip.");
+}
+
+async function ensureCloudShare() {
+  if (!state.cloud.client || !state.cloud.user) return false;
+  if (!state.trip.cloudId) {
+    await saveCloudSnapshot({ forceCreate: true });
+  }
+  if (!state.trip.shareCode) {
+    state.trip.shareCode = createShareCode();
+    await saveCloudSnapshot();
+  }
+  return Boolean(state.trip.shareCode);
+}
+
+function setCloudError(error) {
+  state.cloud.lastError = error?.message || String(error || "Cloud error");
+  state.cloud.syncing = false;
+  renderCloudPanel();
 }
 
 function renderDayStrip() {
@@ -360,7 +1039,7 @@ function renderQuickStats() {
   const stops = sortedStops();
   const days = tripDays();
   const attachments = allAttachments();
-  const busyHours = Math.round(stops.reduce((sum, stop) => sum + Number(stop.duration || 0), 0) / 60);
+  const busyHours = Math.round(stops.reduce((sum, stop) => sum + stopDurationMinutes(stop), 0) / 60);
 
   el.quickStats.innerHTML = [
     `<span class="stat-pill"><strong>${stops.length}</strong> stops</span>`,
@@ -490,7 +1169,7 @@ function renderCalendarEvent(stop) {
   return `
     <button class="calendar-event" type="button" data-action="select" data-id="${stop.id}" style="border-left-color:${meta.color}">
       <strong>${escapeHtml(stop.title)}</strong>
-      <span>${formatTimeForZone(toUtc(stop), state.trip.destinationZone)} · ${meta.label}</span>
+      <span>${formatTimeForZone(toUtc(stop), state.trip.destinationZone)} - ${meta.label}</span>
     </button>
   `;
 }
@@ -504,14 +1183,37 @@ function renderBoard() {
 
   el.boardView.innerHTML = `
     <div class="board-grid">
-      <div class="route-map" aria-label="Route infographic">
-        ${routeSvg(stops)}
+      <div class="route-map route-list-panel" aria-label="Trip places">
+        <div class="board-panel-heading">
+          <div>
+            <h3>Places list</h3>
+            <p>Open the full stop order in Google Maps.</p>
+          </div>
+          <button class="ghost-button" type="button" data-action="open-maps">Google Maps</button>
+        </div>
+        <ol class="place-list">
+          ${stops.map((stop, index) => renderPlaceListItem(stop, index)).join("")}
+        </ol>
       </div>
       <div class="board-panel">
         <h3>Daily load</h3>
         <div class="day-loads">${dayLoadRows()}</div>
       </div>
     </div>
+  `;
+}
+
+function renderPlaceListItem(stop, index) {
+  const meta = typeMeta[stop.type];
+  return `
+    <li class="place-item">
+      <span class="place-number" style="background:${meta.color}">${index + 1}</span>
+      <div>
+        <strong>${escapeHtml(stop.title)}</strong>
+        <span>${formatDateTimeForZone(toUtc(stop), state.trip.destinationZone)} - ${durationLabel(stopDurationMinutes(stop))}</span>
+      </div>
+      <button class="chip-button" type="button" data-action="select" data-id="${stop.id}">Select</button>
+    </li>
   `;
 }
 
@@ -543,7 +1245,7 @@ function renderSelectedCard() {
     <div class="selected-meta">
       <div><span>Iceland time</span><strong>${formatDateTimeForZone(toUtc(stop), state.trip.destinationZone)}</strong></div>
       <div><span>US time</span><strong>${formatDateTimeForZone(toUtc(stop), state.trip.originZone)}</strong></div>
-      <div><span>Duration</span><strong>${durationLabel(stop.duration)}</strong></div>
+      <div><span>Length</span><strong>${durationLabel(stopDurationMinutes(stop))}</strong></div>
     </div>
     ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
     <div class="stop-card-actions">
@@ -556,7 +1258,7 @@ function renderRhythmBars() {
   const days = tripDays();
   const dayLoads = days.map((day) => {
     const stops = stopsForDestinationDay(day.iso);
-    const hours = stops.reduce((sum, stop) => sum + Number(stop.duration || 0), 0) / 60;
+    const hours = stops.reduce((sum, stop) => sum + stopDurationMinutes(stop), 0) / 60;
     return hours;
   });
   const maxLoad = Math.max(...dayLoads, 0);
@@ -609,14 +1311,15 @@ function renderDraftAttachments() {
 }
 
 function renderAttachment(attachment, removable, stopTitle = "", index = null) {
-  const isImage = attachment.type?.startsWith("image/") && attachment.dataUrl;
+  const fileUrl = attachment.dataUrl || attachment.signedUrl || attachment.publicUrl || "";
+  const isImage = attachment.type?.startsWith("image/") && fileUrl;
   const thumb = isImage
-    ? `<img src="${attachment.dataUrl}" alt="">`
+    ? `<img src="${fileUrl}" alt="">`
     : `<span>${fileInitial(attachment.name)}</span>`;
   const action = removable
     ? `<button class="tiny-remove" type="button" data-action="remove-draft-attachment" data-index="${index}" aria-label="Remove ${escapeHtml(attachment.name)}">x</button>`
-    : attachment.dataUrl
-      ? `<a class="tiny-remove" href="${attachment.dataUrl}" download="${escapeAttribute(attachment.name)}" aria-label="Download ${escapeHtml(attachment.name)}">↓</a>`
+    : fileUrl
+      ? `<a class="tiny-remove" href="${fileUrl}" download="${escapeAttribute(attachment.name)}" aria-label="Download ${escapeHtml(attachment.name)}">DL</a>`
       : "";
 
   return `
@@ -624,7 +1327,7 @@ function renderAttachment(attachment, removable, stopTitle = "", index = null) {
       <div class="${removable ? "attachment-thumb" : "gallery-thumb"}">${thumb}</div>
       <div>
         <strong>${escapeHtml(attachment.name)}</strong>
-        <span>${stopTitle ? `${escapeHtml(stopTitle)} · ` : ""}${formatBytes(attachment.size || 0)}</span>
+        <span>${stopTitle ? `${escapeHtml(stopTitle)} - ` : ""}${formatBytes(attachment.size || 0)}</span>
       </div>
       ${action}
     </div>
@@ -637,16 +1340,25 @@ function saveStopFromForm() {
     showToast("Add a location before saving.");
     return;
   }
+  const start = zonedTimeToUtc(el.stopDate.value, el.stopTime.value, el.stopZone.value);
+  const end = zonedTimeToUtc(el.stopEndDate.value, el.stopEndTime.value, el.stopZone.value);
+  if (end <= start) {
+    showToast("End time must be after start time.");
+    return;
+  }
 
   const existing = state.editingId ? state.trip.stops.find((stop) => stop.id === state.editingId) : null;
   const stop = {
     id: existing?.id || createId(),
     title,
     type: el.stopType.value,
+    startDate: el.stopDate.value,
+    startTime: el.stopTime.value,
+    endDate: el.stopEndDate.value,
+    endTime: el.stopEndTime.value,
     date: el.stopDate.value,
     time: el.stopTime.value,
     zone: el.stopZone.value,
-    duration: Number(el.stopDuration.value),
     notes: el.stopNotes.value.trim(),
     attachments: [...(existing?.attachments || []), ...state.draftAttachments]
   };
@@ -675,12 +1387,15 @@ function resetForm(showMessage = true) {
   el.stopTitle.value = "";
   el.stopDate.value = nextStopDate();
   el.stopTime.value = "09:00";
+  const end = inferEndDateTime(el.stopDate.value, el.stopTime.value, state.trip.destinationZone, 90);
+  el.stopEndDate.value = end.date;
+  el.stopEndTime.value = end.time;
   el.stopType.value = "sight";
-  el.stopDuration.value = "90";
   el.stopZone.value = state.trip.destinationZone;
   el.stopNotes.value = "";
   el.stopAttachments.value = "";
   renderDraftAttachments();
+  renderStopLengthPreview();
   if (showMessage) showToast("Form cleared.");
 }
 
@@ -694,13 +1409,15 @@ function editStop(id) {
   el.formTitle.textContent = "Edit stop";
   el.saveStopButton.querySelector("span").textContent = "Update stop";
   el.stopTitle.value = stop.title;
-  el.stopDate.value = stop.date;
-  el.stopTime.value = stop.time;
+  el.stopDate.value = stop.startDate;
+  el.stopTime.value = stop.startTime;
+  el.stopEndDate.value = stop.endDate;
+  el.stopEndTime.value = stop.endTime;
   el.stopType.value = stop.type;
-  el.stopDuration.value = String(stop.duration);
   el.stopZone.value = stop.zone;
   el.stopNotes.value = stop.notes;
   el.stopAttachments.value = "";
+  renderStopLengthPreview();
   saveTrip();
   render();
   el.stopTitle.focus();
@@ -729,10 +1446,11 @@ function deleteStop(id) {
 }
 
 function newTrip() {
-  const ok = window.confirm("Start a new blank itinerary? Export JSON first if you want to keep this one.");
-  if (!ok) return;
+  const name = window.prompt("Trip name", "New Trip");
+  if (name === null) return;
+  upsertActiveTripInStore();
   state.trip = normalizeTrip({
-    name: "Iceland Trip",
+    name: name.trim() || "New Trip",
     originZone: state.trip.originZone,
     destinationZone: "Atlantic/Reykjavik",
     activeView: "timeline",
@@ -740,32 +1458,72 @@ function newTrip() {
     selectedId: null,
     stops: []
   });
+  state.trips.push(state.trip);
   state.activeDay = null;
-  saveTrip();
+  persistLocalTrip();
   setInitialFormValues();
   render();
   showToast("New trip ready.");
 }
 
+async function switchTrip(value) {
+  const [kind, id] = String(value || "").split(":");
+  if (!kind || !id) return;
+  upsertActiveTripInStore();
+
+  if (kind === "cloud") {
+    await loadCloudTripById(id);
+    return;
+  }
+
+  const nextTrip = state.trips.find((trip) => trip.localId === id);
+  if (!nextTrip) return;
+
+  state.trip = normalizeTrip(nextTrip);
+  state.activeDay = null;
+  state.editingId = null;
+  state.draftAttachments = [];
+  persistLocalTrip();
+  setInitialFormValues();
+  render();
+  showToast("Trip switched.");
+}
+
 function readFiles(fileList) {
   const files = Array.from(fileList || []);
   if (!files.length) return;
-  const maxSize = 1.8 * 1024 * 1024;
+  const maxSize = state.cloud.user ? 25 * 1024 * 1024 : 1.8 * 1024 * 1024;
   const readers = files.map((file) => {
     if (file.size > maxSize) {
-      showToast(`${file.name} is too large for browser storage.`);
+      showToast(`${file.name} is too large for ${state.cloud.user ? "cloud upload" : "browser storage"}.`);
       return Promise.resolve(null);
     }
     return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve({
+      const attachment = {
         id: createId(),
         name: file.name,
         type: file.type || "application/octet-stream",
         size: file.size,
-        dataUrl: reader.result
+        dataUrl: "",
+        signedUrl: "",
+        storagePath: ""
+      };
+      Object.defineProperty(attachment, "file", {
+        value: file,
+        enumerable: false
       });
-      reader.onerror = () => resolve(null);
+
+      if (state.cloud.user && !file.type.startsWith("image/")) {
+        resolve(attachment);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        attachment.dataUrl = reader.result;
+        resolve(attachment);
+      };
+      reader.onerror = () => resolve(attachment);
       reader.readAsDataURL(file);
     });
   });
@@ -810,14 +1568,14 @@ function exportIcs() {
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Iceland Itinerary Studio//EN",
+    "PRODID:-//Itinerary Studio//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH"
   ];
 
   sortedStops().forEach((stop) => {
     const start = toUtc(stop);
-    const end = new Date(start.getTime() + Number(stop.duration || 60) * 60000);
+    const end = toEndUtc(stop);
     lines.push(
       "BEGIN:VEVENT",
       `UID:${stop.id}@iceland-itinerary-studio`,
@@ -835,7 +1593,17 @@ function exportIcs() {
   showToast("Calendar downloaded.");
 }
 
-function shareTrip() {
+async function shareTrip() {
+  if (state.cloud.client && state.cloud.user) {
+    const ready = await ensureCloudShare();
+    if (ready) {
+      const url = `${window.location.origin}${window.location.pathname}#join=${state.trip.shareCode}`;
+      copyText(url, "Cloud share link copied.");
+      renderCloudPanel();
+    }
+    return;
+  }
+
   const sharePayload = {
     ...state.trip,
     stops: state.trip.stops.map((stop) => ({
@@ -852,19 +1620,51 @@ function shareTrip() {
   const encoded = encodeBase64(JSON.stringify(sharePayload));
   const url = `${window.location.origin}${window.location.pathname}#trip=${encoded}`;
 
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(url).then(
-      () => showToast("Share link copied without file data."),
-      () => showSharePrompt(url)
-    );
-  } else {
-    showSharePrompt(url);
-  }
+  copyText(url, "Share link copied without file data.");
 }
 
 function showSharePrompt(url) {
   window.prompt("Copy share link", url);
   showToast("Share link ready.");
+}
+
+function copyText(text, successMessage) {
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => showToast(successMessage),
+      () => showSharePrompt(text)
+    );
+  } else {
+    showSharePrompt(text);
+  }
+}
+
+function openGoogleMapsList() {
+  const stops = sortedStops().filter((stop) => stop.title.trim());
+  if (!stops.length) {
+    showToast("Add locations before opening Google Maps.");
+    return;
+  }
+
+  let url;
+  if (stops.length === 1) {
+    url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stops[0].title)}`;
+  } else {
+    const origin = stops[0].title;
+    const destination = stops[stops.length - 1].title;
+    const waypoints = stops.slice(1, -1).slice(0, 23).map((stop) => stop.title).join("|");
+    const params = new URLSearchParams({
+      api: "1",
+      origin,
+      destination,
+      travelmode: "driving"
+    });
+    if (waypoints) params.set("waypoints", waypoints);
+    url = `https://www.google.com/maps/dir/?${params.toString()}`;
+  }
+
+  window.open(url, "_blank", "noopener,noreferrer");
+  showToast("Opening places in Google Maps.");
 }
 
 function readTripFromHash() {
@@ -875,6 +1675,11 @@ function readTripFromHash() {
     console.warn("Unable to read trip hash", error);
     return null;
   }
+}
+
+function readJoinCodeFromHash() {
+  if (!window.location.hash.startsWith("#join=")) return "";
+  return decodeURIComponent(window.location.hash.slice(6)).trim().toUpperCase();
 }
 
 function sortedStops() {
@@ -913,7 +1718,49 @@ function destinationDateIso(stop) {
 }
 
 function toUtc(stop) {
-  return zonedTimeToUtc(stop.date, stop.time, stop.zone);
+  return zonedTimeToUtc(stop.startDate || stop.date, stop.startTime || stop.time, stop.zone);
+}
+
+function toEndUtc(stop) {
+  return zonedTimeToUtc(stop.endDate || stop.startDate || stop.date, stop.endTime || stop.startTime || stop.time, stop.zone);
+}
+
+function stopDurationMinutes(stop) {
+  const diff = Math.round((toEndUtc(stop).getTime() - toUtc(stop).getTime()) / 60000);
+  return Math.max(0, diff);
+}
+
+function inferEndDateTime(dateIso, time, timeZone, minutes) {
+  const start = zonedTimeToUtc(dateIso, time, timeZone);
+  const end = new Date(start.getTime() + Math.max(1, Number(minutes || 90)) * 60000);
+  return formatParts(end, timeZone);
+}
+
+function renderStopLengthPreview() {
+  if (!el.stopLengthPreview || !el.stopDate.value || !el.stopTime.value || !el.stopEndDate.value || !el.stopEndTime.value) {
+    return;
+  }
+  const start = zonedTimeToUtc(el.stopDate.value, el.stopTime.value, el.stopZone.value);
+  const end = zonedTimeToUtc(el.stopEndDate.value, el.stopEndTime.value, el.stopZone.value);
+  const minutes = Math.round((end.getTime() - start.getTime()) / 60000);
+  el.stopLengthPreview.textContent = minutes > 0 ? durationLabel(minutes) : "Check end";
+}
+
+function ensureValidEndFromStart() {
+  if (!el.stopDate.value || !el.stopTime.value) return;
+  if (!el.stopEndDate.value || !el.stopEndTime.value) {
+    const end = inferEndDateTime(el.stopDate.value, el.stopTime.value, el.stopZone.value, 90);
+    el.stopEndDate.value = end.date;
+    el.stopEndTime.value = end.time;
+    return;
+  }
+  const start = zonedTimeToUtc(el.stopDate.value, el.stopTime.value, el.stopZone.value);
+  const end = zonedTimeToUtc(el.stopEndDate.value, el.stopEndTime.value, el.stopZone.value);
+  if (end <= start) {
+    const nextEnd = inferEndDateTime(el.stopDate.value, el.stopTime.value, el.stopZone.value, 90);
+    el.stopEndDate.value = nextEnd.date;
+    el.stopEndTime.value = nextEnd.time;
+  }
 }
 
 function zonedTimeToUtc(dateIso, time, timeZone) {
@@ -1020,7 +1867,7 @@ function hourLabel(hour) {
 
 function hourIsBusy(stop, hour) {
   const startHour = destinationHour(stop);
-  const endHour = Math.min(23, startHour + Math.ceil(Number(stop.duration || 60) / 60));
+  const endHour = Math.min(23, startHour + Math.ceil(stopDurationMinutes(stop) / 60));
   return hour >= startHour && hour < endHour;
 }
 
@@ -1074,7 +1921,7 @@ function dayLoadRows() {
 }
 
 function dayLoadHours(iso) {
-  return stopsForDestinationDay(iso).reduce((sum, stop) => sum + Number(stop.duration || 0), 0) / 60;
+  return stopsForDestinationDay(iso).reduce((sum, stop) => sum + stopDurationMinutes(stop), 0) / 60;
 }
 
 function allAttachments() {
@@ -1131,6 +1978,40 @@ function createId() {
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
+}
+
+function createShareCode() {
+  const bytes = new Uint8Array(5);
+  if (window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(bytes);
+  } else {
+    bytes.forEach((_, index) => {
+      bytes[index] = Math.floor(Math.random() * 256);
+    });
+  }
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("").toUpperCase();
+}
+
+function sanitizeTripForLocal(trip) {
+  return {
+    ...trip,
+    stops: trip.stops.map((stop) => ({
+      ...stop,
+      attachments: stop.attachments.map((attachment) => ({
+        id: attachment.id,
+        name: attachment.name,
+        type: attachment.type,
+        size: attachment.size,
+        dataUrl: attachment.storagePath ? "" : attachment.dataUrl || "",
+        signedUrl: attachment.signedUrl || "",
+        storagePath: attachment.storagePath || ""
+      }))
+    }))
+  };
+}
+
 function formatBytes(bytes) {
   if (!bytes) return "file";
   const units = ["B", "KB", "MB"];
@@ -1141,6 +2022,22 @@ function formatBytes(bytes) {
     index += 1;
   }
   return `${value.toFixed(index ? 1 : 0)} ${units[index]}`;
+}
+
+function dataUrlToBlob(dataUrl) {
+  const [header, payload] = dataUrl.split(",");
+  const mime = /data:(.*?);base64/.exec(header)?.[1] || "application/octet-stream";
+  const binary = atob(payload || "");
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new Blob([bytes], { type: mime });
+}
+
+function safeFileName(name) {
+  return String(name || "attachment")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 90) || "attachment";
 }
 
 function downloadFile(filename, content, type) {

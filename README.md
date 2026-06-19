@@ -1,19 +1,65 @@
-# Iceland Itinerary Studio
+# Itinerary Studio
 
-A static itinerary maker designed for GitHub Pages. It stores trips in the browser and supports:
+A Vercel + Supabase-ready itinerary maker for planning a US-to-Iceland trip across devices.
 
-- Locations, dates, times, durations, notes, and attachments
+## Features
+
+- Multiple trips from the same account
+- Locations, start/end dates and times, notes, and attachments
 - Timeline, calendar, and infographic trip-board views
+- Google Maps route/list opening for all stop locations
 - Paired US/Iceland timezone displays
-- JSON import/export, `.ics` calendar export, print, and shareable URL snapshots
+- Supabase Auth magic-link sign-in
+- Cloud sync for shared devices
+- Partner join links through trip share codes
+- Supabase Storage-backed photos and files
+- Local browser fallback when Supabase is not configured
+- JSON import/export, `.ics` calendar export, and print
 
-## Publish On GitHub Pages
+## Supabase Setup
 
-1. Create a public GitHub repository.
-2. Upload everything in this folder to the repository root, keeping `index.html` at the top level.
-3. Go to **Settings** -> **Pages**.
-4. Under **Build and deployment**, choose **Deploy from a branch**.
-5. Select your main branch and `/(root)`, then click **Save**.
-6. Open the Pages URL GitHub gives you after the deployment finishes.
+1. Create a Supabase project.
+2. In Supabase SQL Editor, run `supabase/schema.sql`.
+3. If you already ran an older version of the schema that used `duration_minutes`, run `supabase/migrate-start-end-times.sql`.
+4. In Authentication settings, add your Vercel production domain and preview domain to the allowed redirect URLs.
+5. Keep the `itinerary-attachments` bucket private. The SQL file creates RLS policies for trip members.
 
-Because this is static HTML/CSS/JS, there is no build step. The included `.nojekyll` file keeps GitHub Pages from running a Jekyll build over the app files.
+The app uses these tables:
+
+- `trips`
+- `trip_members`
+- `stops`
+- `attachments`
+
+The app uses this private storage bucket:
+
+- `itinerary-attachments`
+
+## Vercel Setup
+
+1. Push this folder to a GitHub repository.
+2. Import the repository in Vercel.
+3. Add these environment variables in Vercel Project Settings:
+
+```text
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_ANON_KEY=your-supabase-publishable-or-anon-key
+SUPABASE_STORAGE_BUCKET=itinerary-attachments
+```
+
+4. Deploy.
+
+No build step is required. Vercel serves the static files and the `api/config.js` serverless function exposes only the public Supabase URL/key needed by the browser client.
+
+## Sharing With Your Partner
+
+1. Sign in with your email.
+2. Click **Sync now** to save the local trip to Supabase.
+3. Click the share icon. The app copies a cloud join link.
+4. Your partner opens the link, signs in, and joins the same shared trip.
+
+Use the trip selector under **Cloud sync** to switch between multiple local/cloud trips.
+
+## Local Mode
+
+If Supabase env vars are missing, the app keeps working in local browser storage. Use JSON export before clearing browser data.

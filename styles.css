@@ -26,6 +26,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -270,14 +274,87 @@ label span,
   border-color: #ffffff;
 }
 
+.cloud-panel,
 .form-section,
 .stop-form,
 .insight-panel section {
   padding: 16px;
 }
 
+.cloud-panel,
 .form-section + .stop-form {
   border-top: 1px solid var(--line);
+}
+
+.cloud-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.cloud-hint {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.cloud-auth,
+.join-form {
+  display: grid;
+  gap: 10px;
+}
+
+.cloud-account {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.cloud-account span,
+.share-code-box span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.cloud-account strong,
+.share-code-box strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 3px;
+  font-size: 13px;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.share-code-box {
+  padding: 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: #ffffff;
+}
+
+.compact-button {
+  min-height: 38px;
+  font-size: 13px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .section-heading {
@@ -310,6 +387,32 @@ label span,
 
 .field-grid.two {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.duration-readout {
+  display: grid;
+  align-content: end;
+  gap: 7px;
+}
+
+.duration-readout span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.duration-readout strong {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--teal-dark);
+  background: #ffffff;
+  font-size: 14px;
 }
 
 .stop-form {
@@ -817,6 +920,81 @@ textarea:focus {
 
 .route-map {
   padding: 16px;
+}
+
+.route-list-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.board-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.board-panel-heading h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 840;
+}
+
+.board-panel-heading p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.place-list {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.place-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffff;
+}
+
+.place-number {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.place-item strong,
+.place-item span {
+  display: block;
+}
+
+.place-item strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 840;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-item span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 720;
 }
 
 .route-art {
