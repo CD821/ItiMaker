@@ -36,9 +36,10 @@ A Vercel + Supabase-ready itinerary maker for planning shared trips across devic
 9. If your Supabase project already existed before trip archiving was added, run `supabase/migrate-archive-trips.sql`.
 10. If your Supabase project already existed before stop locations were added, run `supabase/migrate-stop-location.sql`.
 11. If your Supabase project already existed before the BidCraft-style email login and trip workspace save flow, run `supabase/migrate-bidcraft-style-login.sql`.
-12. In Authentication > Providers, keep Email enabled, allow new users to sign up, and turn off Confirm email if you want immediate password login without email verification.
-13. In Authentication > URL Configuration, set Site URL to your Vercel production URL and add your Vercel production and preview URLs to Redirect URLs.
-14. Keep the `itinerary-attachments` bucket private. The SQL file creates RLS policies for trip members.
+12. If your Supabase project already existed before view-only/editor access roles, run `supabase/migrate-access-roles.sql`.
+13. In Authentication > Providers, keep Email enabled, allow new users to sign up, and turn off Confirm email if you want immediate password login without email verification.
+14. In Authentication > URL Configuration, set Site URL to your Vercel production URL and add your Vercel production and preview URLs to Redirect URLs.
+15. Keep the `itinerary-attachments` bucket private. The SQL file creates RLS policies for trip members.
 
 `supabase/schema.sql` is still available as a combined setup file, but the two-step setup is easier to debug in the Supabase SQL Editor.
 
@@ -79,6 +80,8 @@ After deployment, add the deployed Vercel URL to Supabase Auth redirect settings
 4. Your partner opens the link, signs in, and joins the same shared trip.
 
 If Supabase says your email already exists but you do not know the password, click **Send password reset** on the login screen. Open the email link, then set a new password on the Itinerary Studio screen.
+
+Shared-trip links add new people as **View only**. The owner can open **Trip access** in the Cloud sync panel and switch a person to **Can edit** or remove them.
 
 Use the trip selector under **Cloud sync** to switch between multiple local/cloud trips.
 

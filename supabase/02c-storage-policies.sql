@@ -18,7 +18,7 @@ to authenticated
 with check (
   bucket_id = 'itinerary-attachments'
   and (storage.foldername(name))[1] = (select auth.uid())::text
-  and public.is_trip_member(public.storage_trip_id(name))
+  and public.has_trip_role(public.storage_trip_id(name), array['owner', 'editor'])
 );
 
 drop policy if exists "Trip members can update itinerary files" on storage.objects;
@@ -27,11 +27,11 @@ on storage.objects for update
 to authenticated
 using (
   bucket_id = 'itinerary-attachments'
-  and public.is_trip_member(public.storage_trip_id(name))
+  and public.has_trip_role(public.storage_trip_id(name), array['owner', 'editor'])
 )
 with check (
   bucket_id = 'itinerary-attachments'
-  and public.is_trip_member(public.storage_trip_id(name))
+  and public.has_trip_role(public.storage_trip_id(name), array['owner', 'editor'])
 );
 
 drop policy if exists "Trip members can delete itinerary files" on storage.objects;
@@ -40,5 +40,5 @@ on storage.objects for delete
 to authenticated
 using (
   bucket_id = 'itinerary-attachments'
-  and public.is_trip_member(public.storage_trip_id(name))
+  and public.has_trip_role(public.storage_trip_id(name), array['owner', 'editor'])
 );

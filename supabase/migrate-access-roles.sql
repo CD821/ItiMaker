@@ -1,13 +1,9 @@
-create or replace function public.is_trip_member(p_trip_id uuid)
-returns boolean
-as $$
-  select exists (
-    select 1
-    from public.trip_members tm
-    where tm.trip_id = p_trip_id
-      and tm.user_id = (select auth.uid())
-  );
-$$ language sql stable security definer set search_path = '';
+alter table public.trip_members
+drop constraint if exists trip_members_role_check;
+
+alter table public.trip_members
+add constraint trip_members_role_check
+check (role in ('owner', 'editor', 'viewer'));
 
 create or replace function public.has_trip_role(p_trip_id uuid, p_roles text[])
 returns boolean
@@ -50,6 +46,74 @@ begin
   on conflict (trip_id, user_id) do nothing;
 
   return v_trip_id;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+create or replace function public.list_trip_members(p_trip_id uuid)
+returns table (
+  user_id uuid,
+  email text,
+  role text,
+  created_at timestamptz,
+  is_current_user boolean
+)
+as $$
+begin
+  if not public.is_trip_member(p_trip_id) then
+    raise exception 'Not allowed';
+  end if;
+
+  return query
+    select
+      tm.user_id,
+      coalesce(u.email, 'Unknown user')::text as email,
+      tm.role,
+      tm.created_at,
+      tm.user_id = (select auth.uid()) as is_current_user
+    from public.trip_members tm
+    left join auth.users u on u.id = tm.user_id
+    where tm.trip_id = p_trip_id
+    order by
+      case tm.role when 'owner' then 0 when 'editor' then 1 else 2 end,
+      tm.created_at;
+end;
+$$ language plpgsql stable security definer set search_path = public;
+
+create or replace function public.update_trip_member_role(p_trip_id uuid, p_user_id uuid, p_role text)
+returns void
+as $$
+begin
+  if not public.has_trip_role(p_trip_id, array['owner']) then
+    raise exception 'Only the trip owner can change access';
+  end if;
+
+  if p_role not in ('editor', 'viewer') then
+    raise exception 'Role must be editor or viewer';
+  end if;
+
+  update public.trip_members
+  set role = p_role
+  where trip_id = p_trip_id
+    and user_id = p_user_id
+    and role <> 'owner';
+end;
+$$ language plpgsql security definer set search_path = public;
+
+create or replace function public.remove_trip_member(p_trip_id uuid, p_user_id uuid)
+returns void
+as $$
+begin
+  if not (
+    public.has_trip_role(p_trip_id, array['owner'])
+    or p_user_id = (select auth.uid())
+  ) then
+    raise exception 'Only the owner can remove access';
+  end if;
+
+  delete from public.trip_members
+  where trip_id = p_trip_id
+    and user_id = p_user_id
+    and role <> 'owner';
 end;
 $$ language plpgsql security definer set search_path = public;
 
@@ -131,185 +195,12 @@ begin
 end;
 $$ language plpgsql security definer set search_path = public;
 
-create or replace function public.list_trip_members(p_trip_id uuid)
-returns table (
-  user_id uuid,
-  email text,
-  role text,
-  created_at timestamptz,
-  is_current_user boolean
-)
-as $$
-begin
-  if not public.is_trip_member(p_trip_id) then
-    raise exception 'Not allowed';
-  end if;
-
-  return query
-    select
-      tm.user_id,
-      coalesce(u.email, 'Unknown user')::text as email,
-      tm.role,
-      tm.created_at,
-      tm.user_id = (select auth.uid()) as is_current_user
-    from public.trip_members tm
-    left join auth.users u on u.id = tm.user_id
-    where tm.trip_id = p_trip_id
-    order by
-      case tm.role when 'owner' then 0 when 'editor' then 1 else 2 end,
-      tm.created_at;
-end;
-$$ language plpgsql stable security definer set search_path = public;
-
-create or replace function public.update_trip_member_role(p_trip_id uuid, p_user_id uuid, p_role text)
-returns void
-as $$
-begin
-  if not public.has_trip_role(p_trip_id, array['owner']) then
-    raise exception 'Only the trip owner can change access';
-  end if;
-
-  if p_role not in ('editor', 'viewer') then
-    raise exception 'Role must be editor or viewer';
-  end if;
-
-  update public.trip_members
-  set role = p_role
-  where trip_id = p_trip_id
-    and user_id = p_user_id
-    and role <> 'owner';
-end;
-$$ language plpgsql security definer set search_path = public;
-
-create or replace function public.remove_trip_member(p_trip_id uuid, p_user_id uuid)
-returns void
-as $$
-begin
-  if not (
-    public.has_trip_role(p_trip_id, array['owner'])
-    or p_user_id = (select auth.uid())
-  ) then
-    raise exception 'Only the owner can remove access';
-  end if;
-
-  delete from public.trip_members
-  where trip_id = p_trip_id
-    and user_id = p_user_id
-    and role <> 'owner';
-end;
-$$ language plpgsql security definer set search_path = public;
-
-create or replace function public.storage_trip_id(p_storage_path text)
-returns uuid
-as $$
-declare
-  v_parts text[];
-  v_trip_id text;
-begin
-  v_parts = storage.foldername(p_storage_path);
-  if array_length(v_parts, 1) < 2 then
-    return null;
-  end if;
-
-  v_trip_id = v_parts[2];
-  if v_trip_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then
-    return null;
-  end if;
-
-  return v_trip_id::uuid;
-end;
-$$ language plpgsql stable security definer set search_path = '';
-
-alter table public.trips enable row level security;
-alter table public.trip_members enable row level security;
-alter table public.stops enable row level security;
-alter table public.attachments enable row level security;
-
-drop policy if exists "Trip members can read trips" on public.trips;
-create policy "Trip members can read trips"
-on public.trips for select
-to authenticated
-using (public.is_trip_member(id) or owner_user_id = (select auth.uid()));
-
-drop policy if exists "Authenticated users can create owned trips" on public.trips;
-create policy "Authenticated users can create owned trips"
-on public.trips for insert
-to authenticated
-with check (owner_user_id = (select auth.uid()));
-
 drop policy if exists "Trip members can update trips" on public.trips;
 create policy "Trip members can update trips"
 on public.trips for update
 to authenticated
-using (public.is_trip_member(id) or owner_user_id = (select auth.uid()))
+using (public.has_trip_role(id, array['owner', 'editor']) or owner_user_id = (select auth.uid()))
 with check (public.has_trip_role(id, array['owner', 'editor']) or owner_user_id = (select auth.uid()));
-
-drop policy if exists "Trip owners can delete trips" on public.trips;
-create policy "Trip owners can delete trips"
-on public.trips for delete
-to authenticated
-using (owner_user_id = (select auth.uid()));
-
-drop policy if exists "Trip members can read memberships" on public.trip_members;
-create policy "Trip members can read memberships"
-on public.trip_members for select
-to authenticated
-using (public.is_trip_member(trip_id));
-
-drop policy if exists "Trip owners can add memberships" on public.trip_members;
-create policy "Trip owners can add memberships"
-on public.trip_members for insert
-to authenticated
-with check (
-  user_id = (select auth.uid())
-  and exists (
-    select 1
-    from public.trips t
-    where t.id = trip_id
-      and t.owner_user_id = (select auth.uid())
-  )
-);
-
-drop policy if exists "Trip owners can update memberships" on public.trip_members;
-create policy "Trip owners can update memberships"
-on public.trip_members for update
-to authenticated
-using (
-  exists (
-    select 1
-    from public.trips t
-    where t.id = trip_id
-      and t.owner_user_id = (select auth.uid())
-  )
-)
-with check (
-  exists (
-    select 1
-    from public.trips t
-    where t.id = trip_id
-      and t.owner_user_id = (select auth.uid())
-  )
-);
-
-drop policy if exists "Members can leave and owners can remove members" on public.trip_members;
-create policy "Members can leave and owners can remove members"
-on public.trip_members for delete
-to authenticated
-using (
-  user_id = (select auth.uid())
-  or exists (
-    select 1
-    from public.trips t
-    where t.id = trip_id
-      and t.owner_user_id = (select auth.uid())
-  )
-);
-
-drop policy if exists "Trip members can read stops" on public.stops;
-create policy "Trip members can read stops"
-on public.stops for select
-to authenticated
-using (public.is_trip_member(trip_id));
 
 drop policy if exists "Trip members can insert stops" on public.stops;
 create policy "Trip members can insert stops"
@@ -329,12 +220,6 @@ create policy "Trip members can delete stops"
 on public.stops for delete
 to authenticated
 using (public.has_trip_role(trip_id, array['owner', 'editor']));
-
-drop policy if exists "Trip members can read attachments" on public.attachments;
-create policy "Trip members can read attachments"
-on public.attachments for select
-to authenticated
-using (public.is_trip_member(trip_id));
 
 drop policy if exists "Trip members can insert attachments" on public.attachments;
 create policy "Trip members can insert attachments"
@@ -357,19 +242,6 @@ create policy "Trip members can delete attachments"
 on public.attachments for delete
 to authenticated
 using (public.has_trip_role(trip_id, array['owner', 'editor']));
-
-insert into storage.buckets (id, name, public, file_size_limit)
-values ('itinerary-attachments', 'itinerary-attachments', false, 52428800)
-on conflict (id) do nothing;
-
-drop policy if exists "Trip members can read itinerary files" on storage.objects;
-create policy "Trip members can read itinerary files"
-on storage.objects for select
-to authenticated
-using (
-  bucket_id = 'itinerary-attachments'
-  and public.is_trip_member(public.storage_trip_id(name))
-);
 
 drop policy if exists "Trip members can upload itinerary files" on storage.objects;
 create policy "Trip members can upload itinerary files"
@@ -403,11 +275,8 @@ using (
   and public.has_trip_role(public.storage_trip_id(name), array['owner', 'editor'])
 );
 
-grant execute on function public.join_trip_by_code(text) to authenticated;
-grant execute on function public.upsert_owned_trip(uuid, text, text, text, text, text, text) to authenticated;
-grant execute on function public.is_trip_member(uuid) to authenticated;
 grant execute on function public.has_trip_role(uuid, text[]) to authenticated;
+grant execute on function public.upsert_owned_trip(uuid, text, text, text, text, text, text) to authenticated;
 grant execute on function public.list_trip_members(uuid) to authenticated;
 grant execute on function public.update_trip_member_role(uuid, uuid, text) to authenticated;
 grant execute on function public.remove_trip_member(uuid, uuid) to authenticated;
-grant execute on function public.storage_trip_id(text) to authenticated;

@@ -242,6 +242,8 @@ svg {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+  width: max-content;
+  margin: -56px 4px 18px auto;
 }
 
 .icon-button,
@@ -453,6 +455,106 @@ label span,
   font-size: 11px;
   font-weight: 760;
   text-transform: uppercase;
+}
+
+.share-code-box small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.access-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffff;
+}
+
+.access-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.access-heading span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.access-heading strong {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--teal-dark);
+  background: var(--surface-soft);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.access-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.access-member {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.access-member strong,
+.access-member span {
+  display: block;
+}
+
+.access-member strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.access-member span,
+.access-empty {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.access-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.access-controls select {
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.access-role-chip {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
 }
 
 .cloud-account strong,
@@ -1877,6 +1979,8 @@ textarea:focus {
   .top-actions {
     justify-content: flex-start;
     overflow-x: auto;
+    width: 100%;
+    margin: 0 0 12px;
     padding-bottom: 2px;
   }
 
@@ -1944,6 +2048,86 @@ textarea:focus {
 }
 
 @media (max-width: 560px) {
+  body {
+    background: var(--surface-soft);
+  }
+
+  .app-shell {
+    padding: 0 0 76px;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    flex-direction: row;
+    align-items: center;
+    min-height: 64px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(247, 251, 251, 0.96);
+  }
+
+  .top-actions {
+    position: fixed;
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 60;
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+    width: auto;
+    margin: 0;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 -10px 26px rgba(20, 47, 54, 0.12);
+  }
+
+  .icon-button {
+    width: 100%;
+    height: 44px;
+    border-radius: 12px;
+  }
+
+  .studio {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .panel,
+  .workspace {
+    border-radius: 14px;
+  }
+
+  .trip-cover {
+    min-height: 132px;
+  }
+
+  .cloud-panel,
+  .form-section,
+  .stop-launch-panel,
+  .insight-panel section,
+  .workspace {
+    padding: 14px;
+  }
+
+  .cloud-account,
+  .access-panel {
+    border-radius: 12px;
+  }
+
+  .access-member {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .access-controls {
+    justify-content: space-between;
+  }
+
   .modal-backdrop {
     align-items: end;
     padding: 8px;

@@ -9,6 +9,25 @@ as $$
   );
 $$ language sql stable security definer set search_path = '';
 
+create or replace function public.has_trip_role(p_trip_id uuid, p_roles text[])
+returns boolean
+as $$
+  select exists (
+    select 1
+    from public.trips t
+    where t.id = p_trip_id
+      and t.owner_user_id = (select auth.uid())
+      and 'owner' = any(p_roles)
+  )
+  or exists (
+    select 1
+    from public.trip_members tm
+    where tm.trip_id = p_trip_id
+      and tm.user_id = (select auth.uid())
+      and tm.role = any(p_roles)
+  );
+$$ language sql stable security definer set search_path = '';
+
 create or replace function public.join_trip_by_code(p_share_code text)
 returns uuid
 as $$
@@ -27,7 +46,7 @@ begin
   end if;
 
   insert into public.trip_members (trip_id, user_id, role)
-  values (v_trip_id, (select auth.uid()), 'editor')
+  values (v_trip_id, (select auth.uid()), 'viewer')
   on conflict (trip_id, user_id) do nothing;
 
   return v_trip_id;
@@ -55,7 +74,7 @@ begin
 
   v_share_code = coalesce(
     nullif(upper(trim(p_share_code)), ''),
-    upper(substr(encode(gen_random_bytes(6), 'hex'), 1, 10))
+    upper(substr(replace(p_trip_id::text, '-', ''), 1, 10))
   );
 
   insert into public.trips (
@@ -93,7 +112,7 @@ begin
     share_enabled = true,
     updated_at = now()
   where public.trips.owner_user_id = (select auth.uid())
-    or public.is_trip_member(public.trips.id)
+    or public.has_trip_role(public.trips.id, array['owner', 'editor'])
   returning * into v_trip;
 
   if v_trip.id is null then
@@ -109,6 +128,74 @@ begin
   on conflict (trip_id, user_id) do nothing;
 
   return v_trip;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+create or replace function public.list_trip_members(p_trip_id uuid)
+returns table (
+  user_id uuid,
+  email text,
+  role text,
+  created_at timestamptz,
+  is_current_user boolean
+)
+as $$
+begin
+  if not public.is_trip_member(p_trip_id) then
+    raise exception 'Not allowed';
+  end if;
+
+  return query
+    select
+      tm.user_id,
+      coalesce(u.email, 'Unknown user')::text as email,
+      tm.role,
+      tm.created_at,
+      tm.user_id = (select auth.uid()) as is_current_user
+    from public.trip_members tm
+    left join auth.users u on u.id = tm.user_id
+    where tm.trip_id = p_trip_id
+    order by
+      case tm.role when 'owner' then 0 when 'editor' then 1 else 2 end,
+      tm.created_at;
+end;
+$$ language plpgsql stable security definer set search_path = public;
+
+create or replace function public.update_trip_member_role(p_trip_id uuid, p_user_id uuid, p_role text)
+returns void
+as $$
+begin
+  if not public.has_trip_role(p_trip_id, array['owner']) then
+    raise exception 'Only the trip owner can change access';
+  end if;
+
+  if p_role not in ('editor', 'viewer') then
+    raise exception 'Role must be editor or viewer';
+  end if;
+
+  update public.trip_members
+  set role = p_role
+  where trip_id = p_trip_id
+    and user_id = p_user_id
+    and role <> 'owner';
+end;
+$$ language plpgsql security definer set search_path = public;
+
+create or replace function public.remove_trip_member(p_trip_id uuid, p_user_id uuid)
+returns void
+as $$
+begin
+  if not (
+    public.has_trip_role(p_trip_id, array['owner'])
+    or p_user_id = (select auth.uid())
+  ) then
+    raise exception 'Only the owner can remove access';
+  end if;
+
+  delete from public.trip_members
+  where trip_id = p_trip_id
+    and user_id = p_user_id
+    and role <> 'owner';
 end;
 $$ language plpgsql security definer set search_path = public;
 
@@ -136,4 +223,8 @@ $$ language plpgsql stable security definer set search_path = '';
 grant execute on function public.join_trip_by_code(text) to authenticated;
 grant execute on function public.upsert_owned_trip(uuid, text, text, text, text, text, text) to authenticated;
 grant execute on function public.is_trip_member(uuid) to authenticated;
+grant execute on function public.has_trip_role(uuid, text[]) to authenticated;
+grant execute on function public.list_trip_members(uuid) to authenticated;
+grant execute on function public.update_trip_member_role(uuid, uuid, text) to authenticated;
+grant execute on function public.remove_trip_member(uuid, uuid) to authenticated;
 grant execute on function public.storage_trip_id(text) to authenticated;

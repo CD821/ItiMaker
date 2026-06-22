@@ -19,7 +19,7 @@ create table if not exists public.trips (
 create table if not exists public.trip_members (
   trip_id uuid not null references public.trips(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
-  role text not null default 'editor' check (role in ('owner', 'editor')),
+  role text not null default 'editor' check (role in ('owner', 'editor', 'viewer')),
   created_at timestamptz not null default now(),
   primary key (trip_id, user_id)
 );

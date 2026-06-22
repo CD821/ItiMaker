@@ -115,7 +115,8 @@ const state = {
     suppressSave: false,
     lastSavedAt: null,
     lastError: "",
-    trips: []
+    trips: [],
+    members: []
   }
 };
 
@@ -167,6 +168,9 @@ function cacheElements() {
     "joinTripCode",
     "shareCodeBox",
     "cloudShareCode",
+    "accessPanel",
+    "accessRoleLabel",
+    "accessList",
     "tripSelect",
     "archiveTripButton",
     "deleteTripButton",
@@ -340,6 +344,12 @@ function bindEvents() {
   });
 
   document.addEventListener("click", (event) => {
+    const removeAccess = event.target.closest("[data-access-remove]");
+    if (removeAccess) {
+      removeTripMember(removeAccess.dataset.accessRemove);
+      return;
+    }
+
     const calendarMode = event.target.closest("[data-calendar-mode]");
     if (calendarMode) {
       state.trip.calendarMode = calendarMode.dataset.calendarMode;
@@ -369,6 +379,12 @@ function bindEvents() {
   });
 
   document.addEventListener("change", (event) => {
+    const accessRole = event.target.closest("[data-access-role]");
+    if (accessRole) {
+      updateTripMemberRole(accessRole.dataset.accessRole, accessRole.value);
+      return;
+    }
+
     if (event.target.matches("[data-calendar-range]")) {
       updateCalendarRange(event.target.dataset.calendarRange, event.target.value);
     }
@@ -744,6 +760,7 @@ function renderHeader() {
     : "No dates yet";
 
   el.tripName.value = state.trip.name;
+  el.tripName.disabled = !canEditTrip();
   el.tripSubtitle.textContent = `${stops.length} stops - ${range}`;
   el.workspaceTitle.textContent = state.trip.name || "Trip route, visually managed";
   el.workspaceMeta.textContent = stops.length
@@ -777,17 +794,125 @@ function renderCloudPanel() {
   el.cloudAccount.hidden = !signedIn;
   el.joinTripForm.hidden = !cloud.configured || !signedIn;
   el.shareCodeBox.hidden = !signedIn || !state.trip.shareCode;
-  el.syncCloudButton.disabled = !signedIn || cloud.syncing;
+  el.accessPanel.hidden = !signedIn || !state.trip.cloudId;
+  el.syncCloudButton.disabled = !signedIn || cloud.syncing || !canEditTrip();
   el.signOutButton.disabled = cloud.syncing;
-  el.archiveTripButton.disabled = cloud.syncing;
-  el.deleteTripButton.disabled = cloud.syncing;
+  el.archiveTripButton.disabled = cloud.syncing || !canManageAccess();
+  el.deleteTripButton.disabled = cloud.syncing || !canManageAccess();
+  el.openStopModalButton.disabled = !canEditTrip();
   el.cloudUserLabel.textContent = displayUserName(cloud.user);
   el.cloudShareCode.textContent = state.trip.shareCode || "----";
+  renderAccessPanel();
 
   if (!cloud.configured && !cloud.loading) {
     el.cloudUserLabel.textContent = "Add Supabase env vars in Vercel";
   }
   renderAuthGate();
+}
+
+function renderAccessPanel() {
+  if (!el.accessPanel) return;
+  const members = state.cloud.members || [];
+  const current = currentTripMember();
+  el.accessRoleLabel.textContent = current ? roleLabel(current.role) : state.trip.cloudId ? "Member" : "Local";
+  if (!members.length) {
+    el.accessList.innerHTML = `<li class="access-empty">Sync this trip to see access.</li>`;
+    return;
+  }
+
+  const canManage = canManageAccess();
+  el.accessList.innerHTML = members.map((member) => {
+    const isOwner = member.role === "owner";
+    const roleControl = canManage && !isOwner
+      ? `<select data-access-role="${escapeAttribute(member.user_id)}" aria-label="Access for ${escapeAttribute(member.email)}">
+          <option value="viewer" ${member.role === "viewer" ? "selected" : ""}>View only</option>
+          <option value="editor" ${member.role === "editor" ? "selected" : ""}>Can edit</option>
+        </select>`
+      : `<span class="access-role-chip">${roleLabel(member.role)}</span>`;
+    const removeButton = canManage && !isOwner
+      ? `<button class="tiny-remove" type="button" data-access-remove="${escapeAttribute(member.user_id)}">Remove</button>`
+      : "";
+    return `
+      <li class="access-member">
+        <div>
+          <strong>${escapeHtml(member.email || "Unknown user")}${member.is_current_user ? " (you)" : ""}</strong>
+          <span>${escapeHtml(roleDescription(member.role))}</span>
+        </div>
+        <div class="access-controls">${roleControl}${removeButton}</div>
+      </li>
+    `;
+  }).join("");
+}
+
+function currentTripMember() {
+  const userId = state.cloud.user?.id;
+  return (state.cloud.members || []).find((member) => member.user_id === userId || member.is_current_user) || null;
+}
+
+function canEditTrip() {
+  if (!state.trip.cloudId) return true;
+  const member = currentTripMember();
+  return !state.cloud.user || state.trip.cloudOwnerId === state.cloud.user.id || ["owner", "editor"].includes(member?.role);
+}
+
+function canManageAccess() {
+  const member = currentTripMember();
+  return member?.role === "owner" || state.trip.cloudOwnerId === state.cloud.user?.id;
+}
+
+function roleLabel(role) {
+  if (role === "owner") return "Owner";
+  if (role === "editor") return "Can edit";
+  return "View only";
+}
+
+function roleDescription(role) {
+  if (role === "owner") return "Can manage trip, members, and deletion";
+  if (role === "editor") return "Can add, edit, and delete itinerary items";
+  return "Can view the trip without changing it";
+}
+
+async function updateTripMemberRole(userId, role) {
+  if (!canManageAccess()) {
+    showToast("Only the owner can change access.");
+    renderAccessPanel();
+    return;
+  }
+  const { error } = await state.cloud.client.rpc("update_trip_member_role", {
+    p_trip_id: state.trip.cloudId,
+    p_user_id: userId,
+    p_role: role
+  });
+  if (error) {
+    setCloudError(error);
+    showToast("Access could not be updated.");
+    return;
+  }
+  await loadTripMembers();
+  renderCloudPanel();
+  showToast("Access updated.");
+}
+
+async function removeTripMember(userId) {
+  if (!canManageAccess()) {
+    showToast("Only the owner can remove access.");
+    return;
+  }
+  const member = (state.cloud.members || []).find((item) => item.user_id === userId);
+  const ok = window.confirm(`Remove ${member?.email || "this person"} from this trip?`);
+  if (!ok) return;
+  const { error } = await state.cloud.client.rpc("remove_trip_member", {
+    p_trip_id: state.trip.cloudId,
+    p_user_id: userId
+  });
+  if (error) {
+    setCloudError(error);
+    showToast("Access could not be removed.");
+    return;
+  }
+  await loadTripMembers();
+  renderCloudPanel();
+  showToast("Access removed.");
 }
 
 function renderAuthGate() {
@@ -1117,6 +1242,7 @@ async function signOutOfCloud() {
   state.cloud.session = null;
   state.cloud.user = null;
   state.cloud.recoveryMode = false;
+  state.cloud.members = [];
   renderCloudPanel();
   showToast("Signed out.");
 }
@@ -1164,16 +1290,22 @@ async function loadCloudTripById(tripId) {
   renderCloudPanel();
   const client = state.cloud.client;
   const tripQuery = client.from("trips").select("*").eq("id", tripId);
-  const [{ data: trip, error: tripError }, { data: stops, error: stopsError }, { data: attachments, error: attachmentsError }] =
+  const [
+    { data: trip, error: tripError },
+    { data: stops, error: stopsError },
+    { data: attachments, error: attachmentsError },
+    { data: members, error: membersError }
+  ] =
     await Promise.all([
       singleOrNull(tripQuery),
       client.from("stops").select("*").eq("trip_id", tripId).order("starts_at_utc", { ascending: true }),
-      client.from("attachments").select("*").eq("trip_id", tripId)
+      client.from("attachments").select("*").eq("trip_id", tripId),
+      client.rpc("list_trip_members", { p_trip_id: tripId })
     ]);
 
-  if (tripError || stopsError || attachmentsError) {
+  if (tripError || stopsError || attachmentsError || membersError) {
     state.cloud.syncing = false;
-    setCloudError(tripError || stopsError || attachmentsError);
+    setCloudError(tripError || stopsError || attachmentsError || membersError);
     return;
   }
 
@@ -1187,6 +1319,7 @@ async function loadCloudTripById(tripId) {
   const signedAttachments = await withSignedAttachmentUrls(attachments || []);
   const matchingLocalTrip = state.trips.find((localTrip) => localTrip.cloudId === trip.id);
   const cloudTrip = cloudRowsToTrip(trip, stops || [], signedAttachments);
+  state.cloud.members = members || [];
   if (matchingLocalTrip) {
     cloudTrip.localId = matchingLocalTrip.localId;
     cloudTrip.calendarMode = matchingLocalTrip.calendarMode;
@@ -1275,6 +1408,7 @@ async function withSignedAttachmentUrls(attachments) {
 
 function scheduleCloudSave() {
   if (state.cloud.suppressSave || !state.cloud.client || !state.cloud.user) return;
+  if (!canEditTrip()) return;
   clearTimeout(state.cloud.saveTimer);
   state.cloud.saveTimer = setTimeout(() => {
     saveCloudSnapshot();
@@ -1282,11 +1416,16 @@ function scheduleCloudSave() {
 }
 
 async function syncCloudNow() {
+  if (!canEditTrip()) {
+    showToast("This trip is view-only for your account.");
+    return;
+  }
   await saveCloudSnapshot({ forceCreate: true, showDone: true });
 }
 
 async function saveCloudSnapshot(options = {}) {
   if (!state.cloud.client || !state.cloud.user || state.cloud.syncing) return;
+  if (!canEditTrip()) return;
 
   state.cloud.syncing = true;
   state.cloud.lastError = "";
@@ -1304,6 +1443,7 @@ async function saveCloudSnapshot(options = {}) {
     await syncCloudAttachments();
 
     state.cloud.lastSavedAt = new Date();
+    await loadTripMembers(state.trip.cloudId);
     upsertCloudTripSummary();
     persistLocalTrip();
     render();
@@ -1314,6 +1454,16 @@ async function saveCloudSnapshot(options = {}) {
     state.cloud.syncing = false;
     renderCloudPanel();
   }
+}
+
+async function loadTripMembers(tripId = state.trip.cloudId) {
+  if (!state.cloud.client || !state.cloud.user || !tripId) return;
+  const { data, error } = await state.cloud.client.rpc("list_trip_members", { p_trip_id: tripId });
+  if (error) {
+    setCloudError(error);
+    return;
+  }
+  state.cloud.members = data || [];
 }
 
 function upsertCloudTripSummary() {
@@ -1586,9 +1736,11 @@ async function ensureCloudShare() {
 
 function setCloudError(error) {
   const message = error?.message || String(error || "Cloud error");
-  state.cloud.lastError = /location/i.test(message) && /stops/i.test(message)
-    ? "Run migrate-stop-location.sql in Supabase."
-    : message;
+  state.cloud.lastError = /list_trip_members|has_trip_role|update_trip_member_role|remove_trip_member|role/i.test(message)
+    ? "Run migrate-access-roles.sql in Supabase."
+    : /location/i.test(message) && /stops/i.test(message)
+      ? "Run migrate-stop-location.sql in Supabase."
+      : message;
   state.cloud.syncing = false;
   renderCloudPanel();
 }
@@ -1684,6 +1836,7 @@ function renderTimeline() {
 function renderStopRow(stop) {
   const meta = typeMeta[stop.type];
   const selected = stop.id === state.trip.selectedId;
+  const canEdit = canEditTrip();
   return `
     <article class="stop-row">
       <span class="stop-dot" style="background:${meta.color}"></span>
@@ -1696,8 +1849,10 @@ function renderStopRow(stop) {
         ${stop.location ? `<p class="stop-location">${escapeHtml(stop.location)}</p>` : ""}
         ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
         <div class="stop-card-actions">
-          <button class="chip-button" type="button" data-action="edit" data-id="${stop.id}">Edit</button>
-          <button class="chip-button" type="button" data-action="delete" data-id="${stop.id}">Delete</button>
+          ${canEdit ? `
+            <button class="chip-button" type="button" data-action="edit" data-id="${stop.id}">Edit</button>
+            <button class="chip-button" type="button" data-action="delete" data-id="${stop.id}">Delete</button>
+          ` : `<span class="stat-pill">View only</span>`}
           ${stop.attachments.length ? `<span class="stat-pill"><strong>${stop.attachments.length}</strong> files</span>` : ""}
         </div>
       </div>
@@ -2011,6 +2166,7 @@ function renderSelectedCard() {
 
   const meta = typeMeta[stop.type];
   const stopZone = stop.zone || state.trip.destinationZone;
+  const canEdit = canEditTrip();
   el.selectedCard.innerHTML = `
     <div class="stop-card-header">
       <h2>${escapeHtml(stop.title)}</h2>
@@ -2022,9 +2178,11 @@ function renderSelectedCard() {
       <div><span>Length</span><strong>${durationLabel(stopDurationMinutes(stop))}</strong></div>
     </div>
     ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
-    <div class="stop-card-actions">
-      <button class="ghost-button" type="button" data-action="edit" data-id="${stop.id}">Edit</button>
-    </div>
+    ${canEdit ? `
+      <div class="stop-card-actions">
+        <button class="ghost-button" type="button" data-action="edit" data-id="${stop.id}">Edit</button>
+      </div>
+    ` : ""}
   `;
 }
 
@@ -2132,6 +2290,10 @@ function renderAttachment(attachment, removable, stopTitle = "", index = null) {
 }
 
 function saveStopFromForm() {
+  if (!canEditTrip()) {
+    showToast("This trip is view-only for your account.");
+    return;
+  }
   const title = el.stopTitle.value.trim();
   if (!title) {
     showToast("Add a name before saving.");
@@ -2200,6 +2362,10 @@ function resetForm(showMessage = true) {
 }
 
 function editStop(id) {
+  if (!canEditTrip()) {
+    showToast("This trip is view-only for your account.");
+    return;
+  }
   const stop = state.trip.stops.find((item) => item.id === id);
   if (!stop) return;
 
@@ -2234,6 +2400,10 @@ function selectStop(id) {
 }
 
 function deleteStop(id) {
+  if (!canEditTrip()) {
+    showToast("This trip is view-only for your account.");
+    return;
+  }
   const stop = state.trip.stops.find((item) => item.id === id);
   if (!stop) return;
   const ok = window.confirm(`Delete "${stop.title}"?`);

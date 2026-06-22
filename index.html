@@ -76,8 +76,9 @@
             <small id="tripSubtitle">Flexible trip planner</small>
           </span>
         </a>
+      </header>
 
-        <nav class="top-actions" aria-label="Trip actions">
+      <nav class="top-actions" aria-label="Trip actions">
           <button class="icon-button" id="newTripButton" type="button" title="New trip" aria-label="New trip">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 5v14M5 12h14" />
@@ -127,8 +128,7 @@
               <path d="M7 14h10v7H7z" />
             </svg>
           </button>
-        </nav>
-      </header>
+      </nav>
 
       <main class="studio" id="app">
         <aside class="panel editor-panel" aria-label="Itinerary editor">
@@ -190,6 +190,15 @@
             <div class="share-code-box" id="shareCodeBox" hidden>
               <span>Active share code</span>
               <strong id="cloudShareCode">----</strong>
+              <small>New people who join with this code start as view-only.</small>
+            </div>
+
+            <div class="access-panel" id="accessPanel" hidden>
+              <div class="access-heading">
+                <span>Trip access</span>
+                <strong id="accessRoleLabel">Viewer</strong>
+              </div>
+              <ul class="access-list" id="accessList"></ul>
             </div>
           </section>
 

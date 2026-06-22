@@ -20,7 +20,7 @@ create policy "Trip members can update trips"
 on public.trips for update
 to authenticated
 using (public.is_trip_member(id) or owner_user_id = (select auth.uid()))
-with check (public.is_trip_member(id) or owner_user_id = (select auth.uid()));
+with check (public.has_trip_role(id, array['owner', 'editor']) or owner_user_id = (select auth.uid()));
 
 drop policy if exists "Trip owners can delete trips" on public.trips;
 create policy "Trip owners can delete trips"
@@ -93,20 +93,20 @@ drop policy if exists "Trip members can insert stops" on public.stops;
 create policy "Trip members can insert stops"
 on public.stops for insert
 to authenticated
-with check (public.is_trip_member(trip_id));
+with check (public.has_trip_role(trip_id, array['owner', 'editor']));
 
 drop policy if exists "Trip members can update stops" on public.stops;
 create policy "Trip members can update stops"
 on public.stops for update
 to authenticated
-using (public.is_trip_member(trip_id))
-with check (public.is_trip_member(trip_id));
+using (public.has_trip_role(trip_id, array['owner', 'editor']))
+with check (public.has_trip_role(trip_id, array['owner', 'editor']));
 
 drop policy if exists "Trip members can delete stops" on public.stops;
 create policy "Trip members can delete stops"
 on public.stops for delete
 to authenticated
-using (public.is_trip_member(trip_id));
+using (public.has_trip_role(trip_id, array['owner', 'editor']));
 
 drop policy if exists "Trip members can read attachments" on public.attachments;
 create policy "Trip members can read attachments"
@@ -120,18 +120,18 @@ on public.attachments for insert
 to authenticated
 with check (
   created_by = (select auth.uid())
-  and public.is_trip_member(trip_id)
+  and public.has_trip_role(trip_id, array['owner', 'editor'])
 );
 
 drop policy if exists "Trip members can update attachments" on public.attachments;
 create policy "Trip members can update attachments"
 on public.attachments for update
 to authenticated
-using (public.is_trip_member(trip_id))
-with check (public.is_trip_member(trip_id));
+using (public.has_trip_role(trip_id, array['owner', 'editor']))
+with check (public.has_trip_role(trip_id, array['owner', 'editor']));
 
 drop policy if exists "Trip members can delete attachments" on public.attachments;
 create policy "Trip members can delete attachments"
 on public.attachments for delete
 to authenticated
-using (public.is_trip_member(trip_id));
+using (public.has_trip_role(trip_id, array['owner', 'editor']));

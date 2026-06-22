@@ -1,3 +1,22 @@
+create or replace function public.has_trip_role(p_trip_id uuid, p_roles text[])
+returns boolean
+as $$
+  select exists (
+    select 1
+    from public.trips t
+    where t.id = p_trip_id
+      and t.owner_user_id = (select auth.uid())
+      and 'owner' = any(p_roles)
+  )
+  or exists (
+    select 1
+    from public.trip_members tm
+    where tm.trip_id = p_trip_id
+      and tm.user_id = (select auth.uid())
+      and tm.role = any(p_roles)
+  );
+$$ language sql stable security definer set search_path = '';
+
 create or replace function public.upsert_owned_trip(
   p_trip_id uuid,
   p_name text,
@@ -19,7 +38,7 @@ begin
 
   v_share_code = coalesce(
     nullif(upper(trim(p_share_code)), ''),
-    upper(substr(encode(gen_random_bytes(6), 'hex'), 1, 10))
+    upper(substr(replace(p_trip_id::text, '-', ''), 1, 10))
   );
 
   insert into public.trips (
@@ -57,7 +76,7 @@ begin
     share_enabled = true,
     updated_at = now()
   where public.trips.owner_user_id = (select auth.uid())
-    or public.is_trip_member(public.trips.id)
+    or public.has_trip_role(public.trips.id, array['owner', 'editor'])
   returning * into v_trip;
 
   if v_trip.id is null then
@@ -76,4 +95,5 @@ begin
 end;
 $$ language plpgsql security definer set search_path = public;
 
+grant execute on function public.has_trip_role(uuid, text[]) to authenticated;
 grant execute on function public.upsert_owned_trip(uuid, text, text, text, text, text, text) to authenticated;
