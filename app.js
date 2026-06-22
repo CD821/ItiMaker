@@ -798,7 +798,7 @@ function renderAuthGate() {
     message = cloud.lastError || "Supabase env vars are missing in Vercel. Add them to enable login and shared trips.";
   } else if (!cloud.loading && cloud.configured) {
     status = "Login required";
-    message = "Use your username and password to open shared trips.";
+    message = cloud.lastError || "Use your email and password to open shared trips.";
   }
 
   el.authStatus.textContent = status;
@@ -898,6 +898,15 @@ async function loadCloudConfig() {
 }
 
 async function handleCloudSession(session, shouldLoadTrip) {
+  if (session?.user?.email?.endsWith("@itinerary.local")) {
+    await state.cloud.client.auth.signOut();
+    state.cloud.session = null;
+    state.cloud.user = null;
+    state.cloud.lastError = "Old username login was retired. Sign in with your real email, like BidCraft.";
+    renderCloudPanel();
+    return;
+  }
+
   state.cloud.session = session || null;
   state.cloud.user = session?.user || null;
   state.cloud.lastError = "";
@@ -925,16 +934,16 @@ async function signInToCloud(options = {}) {
   const credentials = readLoginCredentials(options.source);
   if (!credentials) return;
 
-  const { username, password, email } = credentials;
+  const { email, password } = credentials;
   const shouldCreateUser = options.shouldCreateUser === true;
-  setLoginFields(username, password);
+  setLoginFields(email, password);
 
   const authCall = shouldCreateUser
     ? state.cloud.client.auth.signUp({
         email,
         password,
         options: {
-          data: { username }
+          data: { full_name: email }
         }
       })
     : state.cloud.client.auth.signInWithPassword({ email, password });
@@ -960,14 +969,14 @@ async function signInToCloud(options = {}) {
 }
 
 function readLoginCredentials(source = "") {
-  const usernameField = source === "cloud" ? el.cloudUsername : el.authUsername;
+  const emailField = source === "cloud" ? el.cloudUsername : el.authUsername;
   const passwordField = source === "cloud" ? el.cloudPassword : el.authPassword;
-  const username = normalizeUsername(usernameField.value);
+  const email = normalizeEmail(emailField.value);
   const password = passwordField.value;
 
-  if (!username) {
-    showToast("Enter a username first.");
-    usernameField.focus();
+  if (!email) {
+    showToast("Enter a valid email first.");
+    emailField.focus();
     return null;
   }
   if (password.length < 6) {
@@ -977,34 +986,26 @@ function readLoginCredentials(source = "") {
   }
 
   return {
-    username,
+    username: email,
     password,
-    email: usernameToAuthEmail(username)
+    email
   };
 }
 
-function setLoginFields(username, password) {
-  el.authUsername.value = username;
-  el.cloudUsername.value = username;
+function setLoginFields(email, password) {
+  el.authUsername.value = email;
+  el.cloudUsername.value = email;
   el.authPassword.value = password;
   el.cloudPassword.value = password;
 }
 
-function normalizeUsername(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-}
-
-function usernameToAuthEmail(username) {
-  return `${username}@itinerary.local`;
+function normalizeEmail(value) {
+  const email = String(value || "").trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
 }
 
 function displayUserName(user) {
-  return user?.user_metadata?.username || String(user?.email || "Not connected").replace(/@itinerary\.local$/i, "");
+  return user?.email || "Not connected";
 }
 
 async function signOutOfCloud() {
@@ -1240,15 +1241,12 @@ async function upsertCloudTrip(isNewTrip) {
   if (isNewTrip) {
     data = await createOwnedCloudTrip(tripFields);
   } else {
-    const query = state.cloud.client
-      .from("trips")
-      .update(tripFields)
-      .eq("id", state.trip.cloudId)
-      .select("*");
-    const { data: updatedTrip, error } = await singleOrNull(query);
-
-    if (error) throw error;
-    data = updatedTrip;
+    try {
+      data = await createOwnedCloudTrip(tripFields);
+    } catch (error) {
+      if (!isCloudTripAccessError(error)) throw error;
+      data = null;
+    }
 
     if (!data) {
       const staleCloudId = state.trip.cloudId;
@@ -1271,19 +1269,6 @@ async function upsertCloudTrip(isNewTrip) {
   state.trip.cloudOwnerId = data.owner_user_id;
   state.trip.shareCode = data.share_code;
 
-  if (data.owner_user_id === state.cloud.user.id) {
-    const { error: memberError } = await state.cloud.client
-      .from("trip_members")
-      .upsert(
-        {
-          trip_id: state.trip.cloudId,
-          user_id: state.cloud.user.id,
-          role: "owner"
-        },
-        { onConflict: "trip_id,user_id", ignoreDuplicates: true }
-      );
-    if (memberError) throw memberError;
-  }
 }
 
 function resetAttachmentStorageForCloudCopy(staleCloudId) {
@@ -1297,19 +1282,24 @@ function resetAttachmentStorageForCloudCopy(staleCloudId) {
   });
 }
 
+function isCloudTripAccessError(error) {
+  const message = error?.message || "";
+  return /Trip not found for this account/i.test(message) || /row-level security/i.test(message);
+}
+
 async function createOwnedCloudTrip(tripFields) {
-  const { data, error } = await state.cloud.client
-    .from("trips")
-    .upsert({
-      id: state.trip.cloudId,
-      ...tripFields,
-      owner_user_id: state.cloud.user.id
-    })
-    .select("*")
-    .single();
+  const { data, error } = await state.cloud.client.rpc("upsert_owned_trip", {
+    p_trip_id: state.trip.cloudId,
+    p_name: tripFields.name,
+    p_origin_zone: tripFields.origin_zone,
+    p_destination_zone: tripFields.destination_zone,
+    p_active_view: tripFields.active_view,
+    p_time_lens: tripFields.time_lens,
+    p_share_code: tripFields.share_code
+  });
 
   if (error) throw error;
-  return data;
+  return Array.isArray(data) ? data[0] : data;
 }
 
 async function singleOrNull(query) {

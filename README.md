@@ -13,7 +13,7 @@ A Vercel + Supabase-ready itinerary maker for planning shared trips across devic
 - Google Maps route/list opening for all stop locations
 - Flexible stop-level timezone displays using browser-supported time zones
 - Login/signup gate before trip access when Supabase is configured
-- Supabase Auth username/password sign-in
+- Supabase Auth email/password sign-in
 - Cloud sync for shared devices
 - Partner join links through trip share codes
 - Supabase Storage-backed photos and files
@@ -35,9 +35,10 @@ A Vercel + Supabase-ready itinerary maker for planning shared trips across devic
 8. If your Supabase project already existed before the trip-members upsert fix, run `supabase/migrate-trip-members-upsert-policy.sql`.
 9. If your Supabase project already existed before trip archiving was added, run `supabase/migrate-archive-trips.sql`.
 10. If your Supabase project already existed before stop locations were added, run `supabase/migrate-stop-location.sql`.
-11. In Authentication > Providers, keep Email enabled, allow new users to sign up, and turn off Confirm email for username/password login without email verification.
-12. In Authentication > URL Configuration, set Site URL to your Vercel production URL and add your Vercel production and preview URLs to Redirect URLs.
-13. Keep the `itinerary-attachments` bucket private. The SQL file creates RLS policies for trip members.
+11. If your Supabase project already existed before the BidCraft-style email login and trip workspace save flow, run `supabase/migrate-bidcraft-style-login.sql`.
+12. In Authentication > Providers, keep Email enabled, allow new users to sign up, and turn off Confirm email if you want immediate password login without email verification.
+13. In Authentication > URL Configuration, set Site URL to your Vercel production URL and add your Vercel production and preview URLs to Redirect URLs.
+14. Keep the `itinerary-attachments` bucket private. The SQL file creates RLS policies for trip members.
 
 `supabase/schema.sql` is still available as a combined setup file, but the two-step setup is easier to debug in the Supabase SQL Editor.
 
@@ -68,11 +69,11 @@ SUPABASE_STORAGE_BUCKET=itinerary-attachments
 
 No build step is required. Vercel serves the static files and the `api/config.js` serverless function exposes only the public Supabase URL/key needed by the browser client.
 
-After deployment, add the deployed Vercel URL to Supabase Auth redirect settings. The app uses username/password in the UI; internally each username is stored in Supabase Auth as `username@itinerary.local`.
+After deployment, add the deployed Vercel URL to Supabase Auth redirect settings. The app uses normal Supabase email/password login, matching the BidCraft login concept.
 
 ## Sharing With Your Partner
 
-1. Sign in with your username and password.
+1. Sign in with your email and password.
 2. Click **Sync now** to save the local trip to Supabase.
 3. Click the share icon. The app copies a cloud join link.
 4. Your partner opens the link, signs in, and joins the same shared trip.
