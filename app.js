@@ -1251,16 +1251,20 @@ async function upsertCloudTrip(isNewTrip) {
     data = updatedTrip;
 
     if (!data) {
-      if (state.trip.cloudOwnerId && state.trip.cloudOwnerId !== state.cloud.user.id) {
-        throw new Error("This cloud trip could not be found for your account. Ask the owner to resend the join link.");
-      }
-
       const staleCloudId = state.trip.cloudId;
+      const wasDifferentOwner = state.trip.cloudOwnerId && state.trip.cloudOwnerId !== state.cloud.user.id;
       state.trip.cloudId = createId();
       state.trip.cloudOwnerId = null;
-      data = await createOwnedCloudTrip(tripFields);
+      state.trip.shareCode = createShareCode();
+      resetAttachmentStorageForCloudCopy(staleCloudId);
+      data = await createOwnedCloudTrip({
+        ...tripFields,
+        share_code: state.trip.shareCode
+      });
       state.cloud.trips = state.cloud.trips.filter((trip) => trip.id !== staleCloudId);
-      showToast("Reconnected this trip to cloud sync.");
+      showToast(wasDifferentOwner
+        ? "Saved this local trip as a new cloud copy for this account."
+        : "Reconnected this trip to cloud sync.");
     }
   }
 
@@ -1280,6 +1284,17 @@ async function upsertCloudTrip(isNewTrip) {
       );
     if (memberError) throw memberError;
   }
+}
+
+function resetAttachmentStorageForCloudCopy(staleCloudId) {
+  if (!staleCloudId) return;
+  state.trip.stops.forEach((stop) => {
+    stop.attachments.forEach((attachment) => {
+      if (attachment.storagePath?.includes(`/${staleCloudId}/`)) {
+        attachment.storagePath = "";
+      }
+    });
+  });
 }
 
 async function createOwnedCloudTrip(tripFields) {
@@ -1391,7 +1406,7 @@ async function syncCloudAttachments() {
 }
 
 async function uploadAttachmentFile(stop, attachment) {
-  const source = attachment.file || (attachment.dataUrl ? dataUrlToBlob(attachment.dataUrl) : null);
+  const source = await attachmentUploadSource(attachment);
   if (!source) {
     throw new Error(`Missing file data for ${attachment.name}`);
   }
@@ -1416,6 +1431,21 @@ async function uploadAttachmentFile(stop, attachment) {
   attachment.dataUrl = attachment.type?.startsWith("image/") ? attachment.dataUrl : "";
   const { data } = await state.cloud.client.storage.from(state.cloud.bucket).createSignedUrl(path, 60 * 60);
   attachment.signedUrl = data?.signedUrl || "";
+}
+
+async function attachmentUploadSource(attachment) {
+  if (attachment.file) return attachment.file;
+  if (attachment.dataUrl) return dataUrlToBlob(attachment.dataUrl);
+  if (!attachment.signedUrl) return null;
+
+  try {
+    const response = await fetch(attachment.signedUrl);
+    if (!response.ok) return null;
+    return response.blob();
+  } catch (error) {
+    console.warn("Unable to fetch signed attachment for re-upload", error);
+    return null;
+  }
 }
 
 async function joinTripByCode(code = el.joinTripCode.value, options = {}) {
