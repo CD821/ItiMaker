@@ -78,6 +78,8 @@ After deployment, add the deployed Vercel URL to Supabase Auth redirect settings
 3. Click the share icon. The app copies a cloud join link.
 4. Your partner opens the link, signs in, and joins the same shared trip.
 
+If Supabase says your email already exists but you do not know the password, click **Send password reset** on the login screen. Open the email link, then set a new password on the Itinerary Studio screen.
+
 Use the trip selector under **Cloud sync** to switch between multiple local/cloud trips.
 
 Cloud changes autosave about one second after a change once the trip has been synced to Supabase. Another open device should reload the trip or refresh the page to pull the latest version; the app does not use live realtime presence yet.

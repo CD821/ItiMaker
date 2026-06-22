@@ -33,7 +33,7 @@
 
         <div class="auth-panel">
           <span class="soft-tag" id="authStatus">Checking setup</span>
-          <h1>Sign in to your trips</h1>
+          <h1 id="authTitle">Sign in to your trips</h1>
           <p id="authGateMessage">Checking your Supabase connection before loading the planner.</p>
 
           <form class="auth-form" id="authGateForm">
@@ -47,6 +47,7 @@
             </label>
             <button class="primary-button" id="authLoginButton" type="submit">Log in</button>
             <button class="ghost-button" id="authSignupButton" type="button">Create account</button>
+            <button class="text-button auth-reset-button" id="authResetButton" type="button">Send password reset</button>
           </form>
 
           <button class="text-button local-access-button" id="continueLocalButton" type="button" hidden>

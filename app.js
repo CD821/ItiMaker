@@ -107,6 +107,7 @@ const state = {
     client: null,
     session: null,
     user: null,
+    recoveryMode: false,
     bucket: DEFAULT_STORAGE_BUCKET,
     syncing: false,
     saveTimer: null,
@@ -135,12 +136,14 @@ function cacheElements() {
     "tripSubtitle",
     "authGate",
     "authStatus",
+    "authTitle",
     "authGateMessage",
     "authGateForm",
     "authUsername",
     "authPassword",
     "authLoginButton",
     "authSignupButton",
+    "authResetButton",
     "continueLocalButton",
     "appShell",
     "newTripButton",
@@ -217,11 +220,19 @@ function cacheElements() {
 function bindEvents() {
   el.authGateForm.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (state.cloud.recoveryMode) {
+      updateCloudPassword();
+      return;
+    }
     signInToCloud({ shouldCreateUser: false });
   });
 
   el.authSignupButton.addEventListener("click", () => {
     signInToCloud({ shouldCreateUser: true });
+  });
+
+  el.authResetButton.addEventListener("click", () => {
+    sendPasswordReset();
   });
 
   el.continueLocalButton.addEventListener("click", () => {
@@ -784,29 +795,40 @@ function renderAuthGate() {
   const cloud = state.cloud;
   const signedIn = Boolean(cloud.user);
   const localModeAllowed = !cloud.configured && state.localAccess;
-  const allowTrips = signedIn || localModeAllowed;
+  const allowTrips = (signedIn && !cloud.recoveryMode) || localModeAllowed;
 
   el.authGate.hidden = allowTrips;
   el.appShell.hidden = !allowTrips;
   if (allowTrips) return;
 
   let status = "Checking setup";
+  let title = "Sign in to your trips";
   let message = "Checking your Supabase connection before loading the planner.";
 
   if (!cloud.loading && !cloud.configured) {
     status = "Setup needed";
     message = cloud.lastError || "Supabase env vars are missing in Vercel. Add them to enable login and shared trips.";
+  } else if (cloud.recoveryMode) {
+    status = "Password reset";
+    title = "Set a new password";
+    message = "Enter a new password for this email, then save it.";
   } else if (!cloud.loading && cloud.configured) {
     status = "Login required";
     message = cloud.lastError || "Use your email and password to open shared trips.";
   }
 
   el.authStatus.textContent = status;
+  el.authTitle.textContent = title;
   el.authGateMessage.textContent = message;
   el.authGateForm.hidden = cloud.loading || !cloud.configured;
   el.continueLocalButton.hidden = cloud.loading || cloud.configured;
   el.authLoginButton.disabled = cloud.loading || !cloud.configured;
+  el.authLoginButton.textContent = cloud.recoveryMode ? "Save new password" : "Log in";
   el.authSignupButton.disabled = cloud.loading || !cloud.configured;
+  el.authSignupButton.hidden = cloud.recoveryMode;
+  el.authResetButton.hidden = cloud.recoveryMode;
+  el.authUsername.disabled = cloud.recoveryMode;
+  if (cloud.recoveryMode && cloud.user?.email) el.authUsername.value = cloud.user.email;
 }
 
 function renderTripSelect() {
@@ -877,6 +899,10 @@ async function initCloud() {
     const { data } = await state.cloud.client.auth.getSession();
     await handleCloudSession(data.session, Boolean(data.session));
     state.cloud.client.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") {
+        startPasswordRecovery(session);
+        return;
+      }
       const userChanged = session?.user?.id && session.user.id !== state.cloud.user?.id;
       const shouldLoadTrip = event === "SIGNED_IN" && (userChanged || !state.trip.cloudId);
       handleCloudSession(session, shouldLoadTrip);
@@ -953,7 +979,9 @@ async function signInToCloud(options = {}) {
   if (error) {
     state.cloud.lastError = error.message;
     renderCloudPanel();
-    showToast(shouldCreateUser ? "Could not create that account." : "Could not log in.");
+    showToast(shouldCreateUser && /already|registered|exists/i.test(error.message || "")
+      ? "That email exists. Send a password reset instead."
+      : shouldCreateUser ? "Could not create that account." : "Could not log in.");
     return;
   }
 
@@ -966,6 +994,67 @@ async function signInToCloud(options = {}) {
   state.cloud.lastError = "Password login is waiting for email confirmation. Turn off Confirm email in Supabase Auth settings.";
   renderCloudPanel();
   showToast("Turn off email confirmation in Supabase Auth settings.");
+}
+
+async function sendPasswordReset() {
+  if (!state.cloud.client) {
+    showToast("Add Supabase env vars in Vercel first.");
+    return;
+  }
+
+  const email = normalizeEmail(el.authUsername.value);
+  if (!email) {
+    showToast("Enter your email first.");
+    el.authUsername.focus();
+    return;
+  }
+
+  const { error } = await state.cloud.client.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}${window.location.pathname}`
+  });
+
+  if (error) {
+    state.cloud.lastError = error.message;
+    renderAuthGate();
+    showToast("Could not send reset email.");
+    return;
+  }
+
+  state.cloud.lastError = `Password reset sent to ${email}. Open that email link, then set a new password here.`;
+  renderAuthGate();
+  showToast("Password reset email sent.");
+}
+
+function startPasswordRecovery(session) {
+  state.cloud.session = session || null;
+  state.cloud.user = session?.user || null;
+  state.cloud.recoveryMode = true;
+  state.cloud.lastError = "";
+  renderCloudPanel();
+  renderAuthGate();
+  el.authPassword.value = "";
+  el.authPassword.focus();
+}
+
+async function updateCloudPassword() {
+  const password = el.authPassword.value;
+  if (password.length < 6) {
+    showToast("Use a password with at least 6 characters.");
+    el.authPassword.focus();
+    return;
+  }
+
+  const { data, error } = await state.cloud.client.auth.updateUser({ password });
+  if (error) {
+    state.cloud.lastError = error.message;
+    renderAuthGate();
+    showToast("Could not update password.");
+    return;
+  }
+
+  state.cloud.recoveryMode = false;
+  await handleCloudSession(data?.user ? { ...state.cloud.session, user: data.user } : state.cloud.session, true);
+  showToast("Password updated.");
 }
 
 function readLoginCredentials(source = "") {
@@ -1013,6 +1102,7 @@ async function signOutOfCloud() {
   await state.cloud.client.auth.signOut();
   state.cloud.session = null;
   state.cloud.user = null;
+  state.cloud.recoveryMode = false;
   renderCloudPanel();
   showToast("Signed out.");
 }
