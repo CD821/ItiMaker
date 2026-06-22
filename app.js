@@ -108,6 +108,7 @@ const state = {
     session: null,
     user: null,
     recoveryMode: false,
+    pendingRecovery: false,
     bucket: DEFAULT_STORAGE_BUCKET,
     syncing: false,
     saveTimer: null,
@@ -881,6 +882,7 @@ async function initCloud() {
     state.cloud.loading = false;
     state.cloud.configured = Boolean(config.enabled);
     state.cloud.bucket = config.storageBucket || DEFAULT_STORAGE_BUCKET;
+    state.cloud.pendingRecovery = isPasswordRecoveryUrl();
 
     if (!state.cloud.configured) {
       renderCloudPanel();
@@ -897,9 +899,13 @@ async function initCloud() {
     });
 
     const { data } = await state.cloud.client.auth.getSession();
+    if (state.cloud.pendingRecovery && data.session) {
+      startPasswordRecovery(data.session);
+      return;
+    }
     await handleCloudSession(data.session, Boolean(data.session));
     state.cloud.client.auth.onAuthStateChange((event, session) => {
-      if (event === "PASSWORD_RECOVERY") {
+      if (event === "PASSWORD_RECOVERY" || (event === "SIGNED_IN" && state.cloud.pendingRecovery)) {
         startPasswordRecovery(session);
         return;
       }
@@ -1029,6 +1035,7 @@ function startPasswordRecovery(session) {
   state.cloud.session = session || null;
   state.cloud.user = session?.user || null;
   state.cloud.recoveryMode = true;
+  state.cloud.pendingRecovery = false;
   state.cloud.lastError = "";
   renderCloudPanel();
   renderAuthGate();
@@ -1053,8 +1060,15 @@ async function updateCloudPassword() {
   }
 
   state.cloud.recoveryMode = false;
+  state.cloud.pendingRecovery = false;
   await handleCloudSession(data?.user ? { ...state.cloud.session, user: data.user } : state.cloud.session, true);
   showToast("Password updated.");
+}
+
+function isPasswordRecoveryUrl() {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const queryParams = new URLSearchParams(window.location.search);
+  return hashParams.get("type") === "recovery" || queryParams.get("type") === "recovery";
 }
 
 function readLoginCredentials(source = "") {
