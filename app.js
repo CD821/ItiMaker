@@ -28,6 +28,8 @@ const fallbackTrip = {
   destinationZone: "Atlantic/Reykjavik",
   activeView: "timeline",
   calendarMode: "week",
+  calendarRangeStart: "",
+  calendarRangeEnd: "",
   timeLens: "both",
   selectedId: "22222222-2222-4222-8222-222222222222",
   stops: [
@@ -140,7 +142,8 @@ function cacheElements() {
     "authStatus",
     "authGateMessage",
     "authGateForm",
-    "authEmail",
+    "authUsername",
+    "authPassword",
     "authLoginButton",
     "authSignupButton",
     "continueLocalButton",
@@ -155,7 +158,8 @@ function cacheElements() {
     "cloudStatus",
     "cloudHint",
     "cloudAuthForm",
-    "cloudEmail",
+    "cloudUsername",
+    "cloudPassword",
     "cloudAccount",
     "cloudUserLabel",
     "syncCloudButton",
@@ -178,6 +182,7 @@ function cacheElements() {
     "formTitle",
     "clearFormButton",
     "stopTitle",
+    "stopLocation",
     "stopDate",
     "stopTime",
     "stopEndDate",
@@ -216,11 +221,11 @@ function cacheElements() {
 function bindEvents() {
   el.authGateForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    signInToCloud({ email: el.authEmail.value, shouldCreateUser: false });
+    signInToCloud({ shouldCreateUser: false });
   });
 
   el.authSignupButton.addEventListener("click", () => {
-    signInToCloud({ email: el.authEmail.value, shouldCreateUser: true });
+    signInToCloud({ shouldCreateUser: true });
   });
 
   el.continueLocalButton.addEventListener("click", () => {
@@ -278,7 +283,7 @@ function bindEvents() {
 
   el.cloudAuthForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    signInToCloud({ email: el.cloudEmail.value, shouldCreateUser: true });
+    signInToCloud({ shouldCreateUser: true, source: "cloud" });
   });
   el.syncCloudButton.addEventListener("click", () => syncCloudNow());
   el.signOutButton.addEventListener("click", () => signOutOfCloud());
@@ -328,6 +333,7 @@ function bindEvents() {
     const calendarMode = event.target.closest("[data-calendar-mode]");
     if (calendarMode) {
       state.trip.calendarMode = calendarMode.dataset.calendarMode;
+      if (state.trip.calendarMode === "range") ensureCalendarRange();
       saveTrip();
       renderCalendar();
       return;
@@ -350,6 +356,12 @@ function bindEvents() {
     if (action.dataset.action === "delete") deleteStop(id);
     if (action.dataset.action === "open-maps") openGoogleMapsList();
     if (action.dataset.action === "remove-draft-attachment") removeDraftAttachment(action.dataset.index);
+  });
+
+  document.addEventListener("change", (event) => {
+    if (event.target.matches("[data-calendar-range]")) {
+      updateCalendarRange(event.target.dataset.calendarRange, event.target.value);
+    }
   });
 }
 
@@ -446,7 +458,9 @@ function normalizeTrip(trip) {
     : "America/Chicago";
   normalized.destinationZone = isKnownZone(normalized.destinationZone) ? normalized.destinationZone : "Atlantic/Reykjavik";
   normalized.activeView = ["timeline", "calendar", "board"].includes(normalized.activeView) ? normalized.activeView : "timeline";
-  normalized.calendarMode = ["month", "week", "day"].includes(normalized.calendarMode) ? normalized.calendarMode : "week";
+  normalized.calendarMode = ["month", "week", "day", "range"].includes(normalized.calendarMode) ? normalized.calendarMode : "week";
+  normalized.calendarRangeStart = isIsoDate(normalized.calendarRangeStart) ? normalized.calendarRangeStart : "";
+  normalized.calendarRangeEnd = isIsoDate(normalized.calendarRangeEnd) ? normalized.calendarRangeEnd : "";
   normalized.timeLens = ["both", "origin", "destination"].includes(normalized.timeLens) ? normalized.timeLens : "both";
 
   normalized.stops = normalized.stops.map((stop) => {
@@ -470,6 +484,7 @@ function normalizeTrip(trip) {
     return {
       id: stopId,
       title: stop.title || "Untitled stop",
+      location: stop.location || stop.place || "",
       type: typeMeta[stop.type] ? stop.type : "note",
       startDate,
       startTime,
@@ -565,6 +580,7 @@ function tripContentKey(trip) {
     })
     .map((stop) => [
       stop.title || "",
+      stop.location || "",
       stop.type || "",
       stop.startDate || stop.date || "",
       stop.startTime || stop.time || "",
@@ -590,6 +606,8 @@ function createBlankTrip(name = "New Trip") {
     destinationZone: "Atlantic/Reykjavik",
     activeView: "timeline",
     calendarMode: "week",
+    calendarRangeStart: "",
+    calendarRangeEnd: "",
     timeLens: "both",
     selectedId: null,
     stops: []
@@ -719,7 +737,7 @@ function renderCloudPanel() {
   el.signOutButton.disabled = cloud.syncing;
   el.archiveTripButton.disabled = cloud.syncing;
   el.deleteTripButton.disabled = cloud.syncing;
-  el.cloudUserLabel.textContent = cloud.user?.email || "Not connected";
+  el.cloudUserLabel.textContent = displayUserName(cloud.user);
   el.cloudShareCode.textContent = state.trip.shareCode || "----";
 
   if (!cloud.configured && !cloud.loading) {
@@ -748,7 +766,7 @@ function renderAuthGate() {
     message = cloud.lastError || "Supabase env vars are missing in Vercel. Add them to enable login and shared trips.";
   } else if (!cloud.loading && cloud.configured) {
     status = "Login required";
-    message = "Enter your email to receive a secure Supabase link before opening your trips.";
+    message = "Use your username and password to open shared trips.";
   }
 
   el.authStatus.textContent = status;
@@ -825,9 +843,11 @@ async function initCloud() {
     });
 
     const { data } = await state.cloud.client.auth.getSession();
-    await handleCloudSession(data.session, false);
-    state.cloud.client.auth.onAuthStateChange((_event, session) => {
-      handleCloudSession(session, true);
+    await handleCloudSession(data.session, Boolean(data.session));
+    state.cloud.client.auth.onAuthStateChange((event, session) => {
+      const userChanged = session?.user?.id && session.user.id !== state.cloud.user?.id;
+      const shouldLoadTrip = event === "SIGNED_IN" && (userChanged || !state.trip.cloudId);
+      handleCloudSession(session, shouldLoadTrip);
     });
   } catch (error) {
     state.cloud.loading = false;
@@ -859,7 +879,7 @@ async function handleCloudSession(session, shouldLoadTrip) {
     return;
   }
 
-  if (shouldLoadTrip || !state.trip.cloudId) {
+  if (shouldLoadTrip) {
     await loadCloudTrips();
   }
 }
@@ -870,35 +890,89 @@ async function signInToCloud(options = {}) {
     return;
   }
 
-  const email = String(options.email || el.cloudEmail.value || el.authEmail.value || "").trim();
-  if (!email) {
-    showToast("Enter your email first.");
-    return;
-  }
+  const credentials = readLoginCredentials(options.source);
+  if (!credentials) return;
 
-  el.cloudEmail.value = email;
-  el.authEmail.value = email;
-  const shouldCreateUser = options.shouldCreateUser !== false;
+  const { username, password, email } = credentials;
+  const shouldCreateUser = options.shouldCreateUser === true;
+  setLoginFields(username, password);
 
-  const { error } = await state.cloud.client.auth.signInWithOtp({
-    email,
-    options: {
-      emailRedirectTo: window.location.href.split("#")[0],
-      shouldCreateUser
-    }
-  });
+  const authCall = shouldCreateUser
+    ? state.cloud.client.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { username }
+        }
+      })
+    : state.cloud.client.auth.signInWithPassword({ email, password });
+
+  const { data, error } = await authCall;
 
   if (error) {
     state.cloud.lastError = error.message;
     renderCloudPanel();
-    showToast("Could not send the sign-in link.");
+    showToast(shouldCreateUser ? "Could not create that account." : "Could not log in.");
     return;
   }
 
-  el.authGateMessage.textContent = shouldCreateUser
-    ? "Check your email for the account link, then return here to open your trips."
-    : "Check your email for the login link, then return here to open your trips.";
-  showToast(shouldCreateUser ? "Check your email for the account link." : "Check your email for the login link.");
+  if (data?.session) {
+    await handleCloudSession(data.session, true);
+    showToast(shouldCreateUser ? "Account created." : "Logged in.");
+    return;
+  }
+
+  state.cloud.lastError = "Password login is waiting for email confirmation. Turn off Confirm email in Supabase Auth settings.";
+  renderCloudPanel();
+  showToast("Turn off email confirmation in Supabase Auth settings.");
+}
+
+function readLoginCredentials(source = "") {
+  const usernameField = source === "cloud" ? el.cloudUsername : el.authUsername;
+  const passwordField = source === "cloud" ? el.cloudPassword : el.authPassword;
+  const username = normalizeUsername(usernameField.value);
+  const password = passwordField.value;
+
+  if (!username) {
+    showToast("Enter a username first.");
+    usernameField.focus();
+    return null;
+  }
+  if (password.length < 6) {
+    showToast("Use a password with at least 6 characters.");
+    passwordField.focus();
+    return null;
+  }
+
+  return {
+    username,
+    password,
+    email: usernameToAuthEmail(username)
+  };
+}
+
+function setLoginFields(username, password) {
+  el.authUsername.value = username;
+  el.cloudUsername.value = username;
+  el.authPassword.value = password;
+  el.cloudPassword.value = password;
+}
+
+function normalizeUsername(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+function usernameToAuthEmail(username) {
+  return `${username}@itinerary.local`;
+}
+
+function displayUserName(user) {
+  return user?.user_metadata?.username || String(user?.email || "Not connected").replace(/@itinerary\.local$/i, "");
 }
 
 async function signOutOfCloud() {
@@ -1030,6 +1104,7 @@ function cloudRowsToTrip(trip, stops, attachments) {
       return {
         id: stop.id,
         title: stop.title,
+        location: stop.location || "",
         type: stop.stop_type,
         startDate: dateTime.date,
         startTime: dateTime.time,
@@ -1226,6 +1301,7 @@ async function syncCloudStops() {
     id: stop.id,
     trip_id: state.trip.cloudId,
     title: stop.title,
+    location: stop.location || "",
     stop_type: stop.type,
     starts_at_utc: toUtc(stop).toISOString(),
     ends_at_utc: toEndUtc(stop).toISOString(),
@@ -1353,7 +1429,10 @@ async function ensureCloudShare() {
 }
 
 function setCloudError(error) {
-  state.cloud.lastError = error?.message || String(error || "Cloud error");
+  const message = error?.message || String(error || "Cloud error");
+  state.cloud.lastError = /location/i.test(message) && /stops/i.test(message)
+    ? "Run migrate-stop-location.sql in Supabase."
+    : message;
   state.cloud.syncing = false;
   renderCloudPanel();
 }
@@ -1462,6 +1541,7 @@ function renderStopRow(stop) {
           <h3>${escapeHtml(stop.title)}</h3>
           <span class="type-chip" style="background:${meta.color}">${meta.label}</span>
         </div>
+        ${stop.location ? `<p class="stop-location">${escapeHtml(stop.location)}</p>` : ""}
         ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
         <div class="stop-card-actions">
           <button class="chip-button" type="button" data-action="select" data-id="${stop.id}">Select</button>
@@ -1483,10 +1563,11 @@ function renderCalendar() {
 
   const mode = state.trip.calendarMode || "week";
   const referenceIso = calendarReferenceIso();
-  const title = calendarRangeLabel(mode, referenceIso);
+  const visibleDays = calendarVisibleDays(mode, referenceIso);
+  const title = calendarRangeLabel(mode, referenceIso, visibleDays);
   const body = mode === "month"
     ? renderMonthCalendar(referenceIso)
-    : renderCalendarTimeGrid(mode === "day" ? [dayInfo(referenceIso)] : weekDays(referenceIso));
+    : renderCalendarTimeGrid(visibleDays);
 
   el.calendarView.innerHTML = `
     <div class="calendar-toolbar">
@@ -1494,10 +1575,23 @@ function renderCalendar() {
         <strong>${escapeHtml(title)}</strong>
         <span>${modeLabel(mode)}</span>
       </div>
-      <div class="segmented compact-segmented" aria-label="Calendar range">
-        <button class="${mode === "month" ? "active" : ""}" type="button" data-calendar-mode="month">Month</button>
-        <button class="${mode === "week" ? "active" : ""}" type="button" data-calendar-mode="week">Week</button>
-        <button class="${mode === "day" ? "active" : ""}" type="button" data-calendar-mode="day">Day</button>
+      <div class="calendar-toolbar-actions">
+        <div class="calendar-range-fields">
+          <label>
+            <span>Start</span>
+            <input type="date" data-calendar-range="start" value="${escapeAttribute(rangeStartForInput(referenceIso))}" />
+          </label>
+          <label>
+            <span>End</span>
+            <input type="date" data-calendar-range="end" value="${escapeAttribute(rangeEndForInput(referenceIso))}" />
+          </label>
+        </div>
+        <div class="segmented compact-segmented" aria-label="Calendar range">
+          <button class="${mode === "month" ? "active" : ""}" type="button" data-calendar-mode="month">Month</button>
+          <button class="${mode === "week" ? "active" : ""}" type="button" data-calendar-mode="week">Week</button>
+          <button class="${mode === "day" ? "active" : ""}" type="button" data-calendar-mode="day">Day</button>
+          <button class="${mode === "range" ? "active" : ""}" type="button" data-calendar-mode="range">Range</button>
+        </div>
       </div>
     </div>
     ${body}
@@ -1545,6 +1639,7 @@ function renderCalendarEvent(stop) {
   return `
     <button class="calendar-event" type="button" data-action="select" data-id="${stop.id}" style="border-left-color:${meta.color}">
       <strong>${escapeHtml(stop.title)}</strong>
+      ${stop.location ? `<small>${escapeHtml(stop.location)}</small>` : ""}
       <span>${formatTimeForZone(toUtc(stop), state.trip.destinationZone)}-${formatTimeForZone(toEndUtc(stop), state.trip.destinationZone)} - ${meta.label}</span>
     </button>
   `;
@@ -1585,9 +1680,62 @@ function calendarReferenceIso() {
   return days[0]?.iso || todayIso();
 }
 
-function calendarRangeLabel(mode, referenceIso) {
+function calendarVisibleDays(mode, referenceIso) {
+  if (mode === "day") return [dayInfo(referenceIso)];
+  if (mode === "range") {
+    ensureCalendarRange(referenceIso);
+    return dateRangeDays(state.trip.calendarRangeStart, state.trip.calendarRangeEnd);
+  }
+  return weekDays(referenceIso);
+}
+
+function ensureCalendarRange(referenceIso = calendarReferenceIso()) {
+  if (!state.trip.calendarRangeStart) state.trip.calendarRangeStart = referenceIso;
+  if (!state.trip.calendarRangeEnd) state.trip.calendarRangeEnd = addDaysIso(state.trip.calendarRangeStart, 3);
+  if (state.trip.calendarRangeEnd < state.trip.calendarRangeStart) {
+    state.trip.calendarRangeEnd = state.trip.calendarRangeStart;
+  }
+}
+
+function updateCalendarRange(kind, value) {
+  if (!isIsoDate(value)) return;
+  if (kind === "start") state.trip.calendarRangeStart = value;
+  if (kind === "end") state.trip.calendarRangeEnd = value;
+  ensureCalendarRange(value);
+  state.trip.calendarMode = "range";
+  state.activeDay = state.trip.calendarRangeStart;
+  saveTrip();
+  render();
+}
+
+function rangeStartForInput(referenceIso) {
+  return state.trip.calendarRangeStart || referenceIso;
+}
+
+function rangeEndForInput(referenceIso) {
+  return state.trip.calendarRangeEnd || addDaysIso(referenceIso, 3);
+}
+
+function dateRangeDays(startIso, endIso) {
+  const days = [];
+  let cursor = startIso;
+  let guard = 0;
+  while (cursor <= endIso && guard < 31) {
+    days.push(dayInfo(cursor));
+    cursor = addDaysIso(cursor, 1);
+    guard += 1;
+  }
+  return days.length ? days : [dayInfo(startIso || todayIso())];
+}
+
+function calendarRangeLabel(mode, referenceIso, visibleDays = []) {
   if (mode === "day") {
     return dayInfo(referenceIso).monthDay;
+  }
+  if (mode === "range") {
+    const first = visibleDays[0] || dayInfo(rangeStartForInput(referenceIso));
+    const last = visibleDays[visibleDays.length - 1] || first;
+    return first.iso === last.iso ? first.monthDay : `${first.monthDay} - ${last.monthDay}`;
   }
   const date = isoToUtcDate(referenceIso);
   if (mode === "month") {
@@ -1600,6 +1748,7 @@ function calendarRangeLabel(mode, referenceIso) {
 function modeLabel(mode) {
   if (mode === "month") return "Month overview";
   if (mode === "day") return "Single-day schedule";
+  if (mode === "range") return "Custom range";
   return "Week schedule";
 }
 
@@ -1639,6 +1788,7 @@ function renderPlaceListItem(stop, index) {
       <span class="place-number" style="background:${meta.color}">${index + 1}</span>
       <div>
         <strong>${escapeHtml(stop.title)}</strong>
+        ${stop.location ? `<em>${escapeHtml(stop.location)}</em>` : ""}
         <span>${formatDateTimeForZone(toUtc(stop), state.trip.destinationZone)} - ${durationLabel(stopDurationMinutes(stop))}</span>
       </div>
       <button class="chip-button" type="button" data-action="select" data-id="${stop.id}">Select</button>
@@ -1671,6 +1821,7 @@ function renderSelectedCard() {
       <h2>${escapeHtml(stop.title)}</h2>
       <span class="type-chip" style="background:${meta.color}">${meta.label}</span>
     </div>
+    ${stop.location ? `<p class="selected-location">${escapeHtml(stop.location)}</p>` : ""}
     <div class="selected-meta">
       <div><span>Iceland time</span><strong>${formatDateTimeForZone(toUtc(stop), state.trip.destinationZone)}</strong></div>
       <div><span>US time</span><strong>${formatDateTimeForZone(toUtc(stop), state.trip.originZone)}</strong></div>
@@ -1788,7 +1939,7 @@ function renderAttachment(attachment, removable, stopTitle = "", index = null) {
 function saveStopFromForm() {
   const title = el.stopTitle.value.trim();
   if (!title) {
-    showToast("Add a location before saving.");
+    showToast("Add a name before saving.");
     return;
   }
   const start = zonedTimeToUtc(el.stopDate.value, el.stopTime.value, el.stopZone.value);
@@ -1802,6 +1953,7 @@ function saveStopFromForm() {
   const stop = {
     id: existing?.id || createId(),
     title,
+    location: el.stopLocation.value.trim(),
     type: el.stopType.value,
     startDate: el.stopDate.value,
     startTime: el.stopTime.value,
@@ -1837,6 +1989,7 @@ function resetForm(showMessage = true) {
   el.formTitle.textContent = "Add stop";
   el.saveStopButton.querySelector("span").textContent = "Save stop";
   el.stopTitle.value = "";
+  el.stopLocation.value = "";
   el.stopDate.value = nextStopDate();
   el.stopTime.value = "09:00";
   const end = inferEndDateTime(el.stopDate.value, el.stopTime.value, state.trip.destinationZone, 90);
@@ -1861,6 +2014,7 @@ function editStop(id) {
   el.formTitle.textContent = "Edit stop";
   el.saveStopButton.querySelector("span").textContent = "Update stop";
   el.stopTitle.value = stop.title;
+  el.stopLocation.value = stop.location || "";
   el.stopDate.value = stop.startDate;
   el.stopTime.value = stop.startTime;
   el.stopEndDate.value = stop.endDate;
@@ -2109,16 +2263,17 @@ function exportIcs() {
   sortedStops().forEach((stop) => {
     const start = toUtc(stop);
     const end = toEndUtc(stop);
-    lines.push(
+    lines.push(...[
       "BEGIN:VEVENT",
       `UID:${stop.id}@iceland-itinerary-studio`,
       `DTSTAMP:${icsDate(new Date())}`,
       `DTSTART:${icsDate(start)}`,
       `DTEND:${icsDate(end)}`,
       `SUMMARY:${icsText(stop.title)}`,
+      stop.location ? `LOCATION:${icsText(stop.location)}` : "",
       `DESCRIPTION:${icsText(`${stop.notes || ""}\\nIceland: ${formatDateTimeForZone(start, state.trip.destinationZone)}\\nUS: ${formatDateTimeForZone(start, state.trip.originZone)}`)}`,
       "END:VEVENT"
-    );
+    ].filter(Boolean));
   });
 
   lines.push("END:VCALENDAR");
@@ -2173,7 +2328,7 @@ function copyText(text, successMessage) {
 }
 
 function openGoogleMapsList() {
-  const stops = sortedStops().filter((stop) => stop.title.trim());
+  const stops = sortedStops().filter((stop) => stopMapQuery(stop));
   if (!stops.length) {
     showToast("Add locations before opening Google Maps.");
     return;
@@ -2181,11 +2336,11 @@ function openGoogleMapsList() {
 
   let url;
   if (stops.length === 1) {
-    url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stops[0].title)}`;
+    url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stopMapQuery(stops[0]))}`;
   } else {
-    const origin = stops[0].title;
-    const destination = stops[stops.length - 1].title;
-    const waypoints = stops.slice(1, -1).slice(0, 23).map((stop) => stop.title).join("|");
+    const origin = stopMapQuery(stops[0]);
+    const destination = stopMapQuery(stops[stops.length - 1]);
+    const waypoints = stops.slice(1, -1).slice(0, 23).map(stopMapQuery).join("|");
     const params = new URLSearchParams({
       api: "1",
       origin,
@@ -2198,6 +2353,10 @@ function openGoogleMapsList() {
 
   window.open(url, "_blank", "noopener,noreferrer");
   showToast("Opening places in Google Maps.");
+}
+
+function stopMapQuery(stop) {
+  return String(stop.location || stop.title || "").trim();
 }
 
 function readTripFromHash() {
@@ -2546,6 +2705,10 @@ function createId() {
 
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
+}
+
+function isIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
 }
 
 function createShareCode() {

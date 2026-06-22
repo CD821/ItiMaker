@@ -38,11 +38,15 @@
 
           <form class="auth-form" id="authGateForm">
             <label>
-              <span>Email</span>
-              <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" required />
+              <span>Username</span>
+              <input id="authUsername" type="text" autocomplete="username" placeholder="yourname" required />
             </label>
-            <button class="primary-button" id="authLoginButton" type="submit">Send login link</button>
-            <button class="ghost-button" id="authSignupButton" type="button">Create account link</button>
+            <label>
+              <span>Password</span>
+              <input id="authPassword" type="password" autocomplete="current-password" placeholder="Password" required minlength="6" />
+            </label>
+            <button class="primary-button" id="authLoginButton" type="submit">Log in</button>
+            <button class="ghost-button" id="authSignupButton" type="button">Create account</button>
           </form>
 
           <button class="text-button local-access-button" id="continueLocalButton" type="button" hidden>
@@ -50,7 +54,7 @@
           </button>
 
           <p class="auth-footnote">
-            You and your partner can use separate devices after signing in with Supabase email links.
+            You and your partner can use separate usernames and passwords after Supabase password login is enabled.
           </p>
         </div>
       </div>
@@ -153,10 +157,14 @@
 
             <form class="cloud-auth" id="cloudAuthForm">
               <label>
-                <span>Email</span>
-                <input id="cloudEmail" type="email" autocomplete="email" placeholder="you@example.com" />
+                <span>Username</span>
+                <input id="cloudUsername" type="text" autocomplete="username" placeholder="yourname" />
               </label>
-              <button class="primary-button compact-button" type="submit">Send sign-in link</button>
+              <label>
+                <span>Password</span>
+                <input id="cloudPassword" type="password" autocomplete="current-password" placeholder="Password" minlength="6" />
+              </label>
+              <button class="primary-button compact-button" type="submit">Create account</button>
             </form>
 
             <div class="cloud-account" id="cloudAccount" hidden>
@@ -308,10 +316,16 @@
             </button>
           </div>
 
-          <label>
-            <span>Location</span>
-            <input id="stopTitle" type="text" placeholder="Reykjavik food walk" required />
-          </label>
+          <div class="field-grid two">
+            <label>
+              <span>Name</span>
+              <input id="stopTitle" type="text" placeholder="Dinner reservation" required />
+            </label>
+            <label>
+              <span>Location</span>
+              <input id="stopLocation" type="text" placeholder="Reykjavik food walk" />
+            </label>
+          </div>
 
           <div class="field-grid two">
             <label>
