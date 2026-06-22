@@ -1,6 +1,6 @@
 # Itinerary Studio
 
-A Vercel + Supabase-ready itinerary maker for planning a US-to-Iceland trip across devices.
+A Vercel + Supabase-ready itinerary maker for planning shared trips across devices.
 
 ## Features
 
@@ -8,10 +8,10 @@ A Vercel + Supabase-ready itinerary maker for planning a US-to-Iceland trip acro
 - Archive or delete trips from the trip selector area
 - Stop names, optional locations, start/end dates and times, notes, and attachments
 - Popup add/edit stop window
-- Timeline, calendar, and infographic trip-board views
+- Timeline with optional end-time display, calendar, and map-based trip-board views
 - Month, week, day, and custom range calendar modes
 - Google Maps route/list opening for all stop locations
-- Paired US/Iceland timezone displays
+- Flexible paired timezone displays using browser-supported time zones
 - Login/signup gate before trip access when Supabase is configured
 - Supabase Auth username/password sign-in
 - Cloud sync for shared devices

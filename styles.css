@@ -670,6 +670,27 @@ textarea:focus {
   font-weight: 800;
 }
 
+.toggle-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.toggle-control input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--teal);
+}
+
 .upload-box input {
   position: absolute;
   width: 1px;
@@ -1281,6 +1302,82 @@ textarea:focus {
   padding: 16px;
 }
 
+.trip-map-panel {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 12px;
+}
+
+.map-frame {
+  width: 100%;
+  min-height: 260px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.map-schematic {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.map-schematic .route-art {
+  display: block;
+  min-height: 220px;
+}
+
+.map-pin-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.map-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  max-width: 220px;
+  padding: 5px 9px 5px 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  background: #ffffff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.map-pin.active,
+.map-pin:hover,
+.place-item:hover,
+.stop-card:hover {
+  border-color: rgba(8, 123, 131, 0.48);
+  box-shadow: 0 8px 20px rgba(8, 123, 131, 0.09);
+}
+
+.map-pin span {
+  display: grid;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.map-pin strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .route-list-panel {
   display: grid;
   gap: 14px;
@@ -1316,13 +1413,18 @@ textarea:focus {
 
 .place-item {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: 34px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: #ffffff;
+  cursor: pointer;
+}
+
+.stop-card {
+  cursor: pointer;
 }
 
 .place-number {
@@ -1774,6 +1876,7 @@ textarea:focus {
 
   .segmented,
   .lens-control,
+  .toggle-control,
   .calendar-toolbar-actions,
   .calendar-range-fields {
     width: 100%;

@@ -72,7 +72,7 @@
           </span>
           <span>
             <strong>Itinerary Studio</strong>
-            <small id="tripSubtitle">US to Iceland planner</small>
+            <small id="tripSubtitle">Flexible trip planner</small>
           </span>
         </a>
 
@@ -199,11 +199,11 @@
             </div>
             <div class="field-grid two">
               <label>
-                <span>US time</span>
+                <span>Home time</span>
                 <select id="originZone"></select>
               </label>
               <label>
-                <span>Iceland time</span>
+                <span>Trip time</span>
                 <select id="destinationZone"></select>
               </label>
             </div>
@@ -214,7 +214,7 @@
               <h2 id="stopLauncherHeading">Stops</h2>
               <span class="soft-tag">Popup editor</span>
             </div>
-            <p>Add or edit locations in a focused popup window.</p>
+            <p>Add or edit activities, addresses, dates, and notes.</p>
             <button class="primary-button" id="openStopModalButton" type="button">
               <span>Add stop</span>
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -227,7 +227,7 @@
         <section class="workspace" aria-label="Itinerary workspace">
           <div class="workspace-header">
             <div>
-              <h1 id="workspaceTitle">Iceland route, visually managed</h1>
+              <h1 id="workspaceTitle">Trip route, visually managed</h1>
               <p id="workspaceMeta"></p>
             </div>
             <div class="segmented" role="tablist" aria-label="View mode">
@@ -242,9 +242,13 @@
           <div class="view-options">
             <div class="lens-control" aria-label="Time display">
               <button type="button" class="active" data-lens="both">Both</button>
-              <button type="button" data-lens="destination">Iceland</button>
-              <button type="button" data-lens="origin">US</button>
+              <button type="button" data-lens="destination">Trip</button>
+              <button type="button" data-lens="origin">Home</button>
             </div>
+            <label class="toggle-control">
+              <input id="timelineTimeRangeToggle" type="checkbox" checked />
+              <span>Show end times</span>
+            </label>
             <div class="quick-stats" id="quickStats"></div>
           </div>
 
@@ -257,7 +261,7 @@
           <section class="clock-panel">
             <div class="dual-clock">
               <div>
-                <span>US time</span>
+                <span>Home time</span>
                 <strong id="originClock">--:--</strong>
                 <small id="originClockZone"></small>
               </div>
@@ -266,7 +270,7 @@
                 <path d="m13 6 6 6-6 6" />
               </svg>
               <div>
-                <span>Iceland time</span>
+                <span>Trip time</span>
                 <strong id="destinationClock">--:--</strong>
                 <small id="destinationClockZone"></small>
               </div>
@@ -323,7 +327,7 @@
             </label>
             <label>
               <span>Location</span>
-              <input id="stopLocation" type="text" placeholder="Reykjavik food walk" />
+              <input id="stopLocation" type="text" placeholder="Restaurant, hotel, airport, or address" />
             </label>
           </div>
 

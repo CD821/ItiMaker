@@ -1,15 +1,9 @@
 const STORAGE_KEY = "iceland-itinerary-studio-v1";
 const SUPABASE_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 const DEFAULT_STORAGE_BUCKET = "itinerary-attachments";
+const detectedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
-const zones = [
-  { id: "America/New_York", label: "Eastern" },
-  { id: "America/Chicago", label: "Central" },
-  { id: "America/Denver", label: "Mountain" },
-  { id: "America/Los_Angeles", label: "Pacific" },
-  { id: "America/Anchorage", label: "Alaska" },
-  { id: "Atlantic/Reykjavik", label: "Iceland" }
-];
+const zones = buildTimeZoneOptions();
 
 const typeMeta = {
   flight: { label: "Flight", color: "#e7785f", icon: "plane" },
@@ -22,74 +16,75 @@ const typeMeta = {
 };
 
 const fallbackTrip = {
-  name: "Iceland Ring Road Preview",
+  name: "Sample Trip Preview",
   localId: "local-preview-trip",
-  originZone: "America/Chicago",
-  destinationZone: "Atlantic/Reykjavik",
+  originZone: detectedTimeZone,
+  destinationZone: detectedTimeZone,
   activeView: "timeline",
   calendarMode: "week",
   calendarRangeStart: "",
   calendarRangeEnd: "",
   timeLens: "both",
+  showEndTimes: true,
   selectedId: "22222222-2222-4222-8222-222222222222",
   stops: [
     {
       id: "11111111-1111-4111-8111-111111111111",
-      title: "Flight to Keflavik",
+      title: "Flight arrival",
       type: "flight",
       startDate: "2026-06-21",
       startTime: "19:35",
       endDate: "2026-06-22",
       endTime: "05:35",
-      zone: "America/Chicago",
+      zone: detectedTimeZone,
       notes: "Overnight flight. Keep passport, chargers, and layers easy to reach.",
       attachments: []
     },
     {
       id: "22222222-2222-4222-8222-222222222222",
-      title: "Reykjavik check-in",
+      title: "Hotel check-in",
       type: "stay",
       startDate: "2026-06-22",
       startTime: "09:40",
       endDate: "2026-06-22",
       endTime: "11:10",
-      zone: "Atlantic/Reykjavik",
-      notes: "Drop bags, reset watches to Iceland time, coffee nearby.",
+      zone: detectedTimeZone,
+      notes: "Drop bags, reset watches to local time, coffee nearby.",
       attachments: []
     },
     {
       id: "33333333-3333-4333-8333-333333333333",
-      title: "Blue Lagoon",
+      title: "Landmark visit",
       type: "sight",
       startDate: "2026-06-22",
       startTime: "14:00",
       endDate: "2026-06-22",
       endTime: "17:00",
-      zone: "Atlantic/Reykjavik",
+      zone: detectedTimeZone,
       notes: "Pre-booked entry window. Pack swimsuit in day bag.",
       attachments: []
     },
     {
       id: "44444444-4444-4444-8444-444444444444",
-      title: "Golden Circle",
+      title: "Scenic drive",
       type: "drive",
       startDate: "2026-06-23",
       startTime: "08:30",
       endDate: "2026-06-23",
       endTime: "16:30",
-      zone: "Atlantic/Reykjavik",
+      zone: detectedTimeZone,
       notes: "Thingvellir, Geysir, Gullfoss. Leave room for weather delays.",
       attachments: []
     },
     {
       id: "55555555-5555-4555-8555-555555555555",
-      title: "Reykjavik dinner notes",
+      title: "Dinner notes",
       type: "food",
       startDate: "2026-06-23",
       startTime: "19:15",
       endDate: "2026-06-23",
       endTime: "20:45",
-      zone: "Atlantic/Reykjavik",
+      zone: detectedTimeZone,
       notes: "Try seafood or lamb. Save receipts for budget tracking.",
       attachments: []
     }
@@ -172,6 +167,7 @@ function cacheElements() {
     "archiveTripButton",
     "deleteTripButton",
     "tripName",
+    "timelineTimeRangeToggle",
     "openStopModalButton",
     "stopModal",
     "closeStopModalButton",
@@ -236,7 +232,7 @@ function bindEvents() {
   });
 
   el.tripName.addEventListener("input", (event) => {
-    state.trip.name = event.target.value.trim() || "Untitled Iceland Trip";
+    state.trip.name = event.target.value.trim() || "Untitled Trip";
     saveTrip();
     renderHeader();
   });
@@ -255,6 +251,12 @@ function bindEvents() {
     if (!state.editingId && el.stopType.value !== "flight") {
       el.stopZone.value = event.target.value;
     }
+    saveTrip();
+    render();
+  });
+
+  el.timelineTimeRangeToggle.addEventListener("change", (event) => {
+    state.trip.showEndTimes = event.target.checked;
     saveTrip();
     render();
   });
@@ -279,6 +281,10 @@ function bindEvents() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !el.stopModal.hidden) closeStopModal();
+    if ((event.key === "Enter" || event.key === " ") && event.target.matches('[role="button"][data-action="select"]')) {
+      event.preventDefault();
+      event.target.click();
+    }
   });
 
   el.cloudAuthForm.addEventListener("submit", (event) => {
@@ -366,11 +372,8 @@ function bindEvents() {
 }
 
 function populateZones() {
-  const options = zones.map((zone) => `<option value="${zone.id}">${zone.label}</option>`).join("");
-  el.originZone.innerHTML = zones
-    .filter((zone) => zone.id !== "Atlantic/Reykjavik")
-    .map((zone) => `<option value="${zone.id}">${zone.label}</option>`)
-    .join("");
+  const options = zones.map((zone) => `<option value="${zone.id}">${escapeHtml(zone.label)}</option>`).join("");
+  el.originZone.innerHTML = options;
   el.destinationZone.innerHTML = options;
   el.stopZone.innerHTML = options;
 }
@@ -453,15 +456,14 @@ function normalizeTrip(trip) {
   normalized.cloudOwnerId = isUuid(normalized.cloudOwnerId) ? normalized.cloudOwnerId : null;
   normalized.shareCode = normalized.shareCode || "";
   normalized.archivedAt = normalized.archivedAt || normalized.archived_at || "";
-  normalized.originZone = isKnownZone(normalized.originZone) && normalized.originZone !== "Atlantic/Reykjavik"
-    ? normalized.originZone
-    : "America/Chicago";
-  normalized.destinationZone = isKnownZone(normalized.destinationZone) ? normalized.destinationZone : "Atlantic/Reykjavik";
+  normalized.originZone = isKnownZone(normalized.originZone) ? normalized.originZone : detectedTimeZone;
+  normalized.destinationZone = isKnownZone(normalized.destinationZone) ? normalized.destinationZone : detectedTimeZone;
   normalized.activeView = ["timeline", "calendar", "board"].includes(normalized.activeView) ? normalized.activeView : "timeline";
   normalized.calendarMode = ["month", "week", "day", "range"].includes(normalized.calendarMode) ? normalized.calendarMode : "week";
   normalized.calendarRangeStart = isIsoDate(normalized.calendarRangeStart) ? normalized.calendarRangeStart : "";
   normalized.calendarRangeEnd = isIsoDate(normalized.calendarRangeEnd) ? normalized.calendarRangeEnd : "";
   normalized.timeLens = ["both", "origin", "destination"].includes(normalized.timeLens) ? normalized.timeLens : "both";
+  normalized.showEndTimes = normalized.showEndTimes !== false;
 
   normalized.stops = normalized.stops.map((stop) => {
     const incomingId = stop.id || "";
@@ -602,13 +604,14 @@ function createBlankTrip(name = "New Trip") {
   return normalizeTrip({
     name,
     localId: createId(),
-    originZone: "America/Chicago",
-    destinationZone: "Atlantic/Reykjavik",
+    originZone: detectedTimeZone,
+    destinationZone: detectedTimeZone,
     activeView: "timeline",
     calendarMode: "week",
     calendarRangeStart: "",
     calendarRangeEnd: "",
     timeLens: "both",
+    showEndTimes: true,
     selectedId: null,
     stops: []
   });
@@ -616,6 +619,42 @@ function createBlankTrip(name = "New Trip") {
 
 function isKnownZone(zone) {
   return zones.some((item) => item.id === zone);
+}
+
+function buildTimeZoneOptions() {
+  const fallbackZones = [
+    "UTC",
+    "America/New_York",
+    "America/Chicago",
+    "America/Denver",
+    "America/Los_Angeles",
+    "America/Mexico_City",
+    "America/Bogota",
+    "America/Sao_Paulo",
+    "Atlantic/Reykjavik",
+    "Europe/London",
+    "Europe/Madrid",
+    "Europe/Paris",
+    "Europe/Rome",
+    "Asia/Tokyo",
+    "Asia/Seoul",
+    "Asia/Dubai",
+    "Australia/Sydney",
+    "Pacific/Honolulu"
+  ];
+  const supported = typeof Intl.supportedValuesOf === "function"
+    ? Intl.supportedValuesOf("timeZone")
+    : fallbackZones;
+  const unique = new Set([detectedTimeZone, ...supported, ...fallbackZones].filter(Boolean));
+  return [...unique]
+    .map((id) => ({ id, label: timeZoneOptionLabel(id) }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function timeZoneOptionLabel(zoneId) {
+  const city = zoneId.split("/").pop().replace(/_/g, " ");
+  const region = zoneId.includes("/") ? zoneId.split("/")[0].replace(/_/g, " ") : "";
+  return region ? `${city} (${region})` : city;
 }
 
 function readSessionFlag(key) {
@@ -702,13 +741,14 @@ function renderHeader() {
 
   el.tripName.value = state.trip.name;
   el.tripSubtitle.textContent = `${stops.length} stops - ${range}`;
-  el.workspaceTitle.textContent = state.trip.name || "Iceland route, visually managed";
+  el.workspaceTitle.textContent = state.trip.name || "Trip route, visually managed";
   el.workspaceMeta.textContent = stops.length
     ? `${range} - Calendar and timeline shown in ${zoneLabel(state.trip.destinationZone)} with paired ${zoneLabel(state.trip.originZone)} conversions.`
     : "Add locations, dates, times, notes, and files to start shaping the trip.";
   el.originZone.value = state.trip.originZone;
   el.destinationZone.value = state.trip.destinationZone;
   el.zoneDelta.textContent = zoneDeltaLabel();
+  el.timelineTimeRangeToggle.checked = state.trip.showEndTimes !== false;
 }
 
 function renderCloudPanel() {
@@ -1489,6 +1529,8 @@ function renderViews() {
 
   document.querySelectorAll("[data-lens]").forEach((button) => {
     button.classList.toggle("active", button.dataset.lens === state.trip.timeLens);
+    if (button.dataset.lens === "origin") button.textContent = zoneLabel(state.trip.originZone);
+    if (button.dataset.lens === "destination") button.textContent = zoneLabel(state.trip.destinationZone);
   });
 
   ["timeline", "calendar", "board"].forEach((view) => {
@@ -1536,7 +1578,7 @@ function renderStopRow(stop) {
     <article class="stop-row">
       <span class="stop-dot" style="background:${meta.color}"></span>
       <div class="stop-time">${timePair(stop)}</div>
-      <div class="stop-card ${selected ? "selected" : ""}">
+      <div class="stop-card ${selected ? "selected" : ""}" role="button" tabindex="0" data-action="select" data-id="${stop.id}" aria-label="Select ${escapeAttribute(stop.title)}">
         <div class="stop-card-header">
           <h3>${escapeHtml(stop.title)}</h3>
           <span class="type-chip" style="background:${meta.color}">${meta.label}</span>
@@ -1544,7 +1586,6 @@ function renderStopRow(stop) {
         ${stop.location ? `<p class="stop-location">${escapeHtml(stop.location)}</p>` : ""}
         ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
         <div class="stop-card-actions">
-          <button class="chip-button" type="button" data-action="select" data-id="${stop.id}">Select</button>
           <button class="chip-button" type="button" data-action="edit" data-id="${stop.id}">Edit</button>
           <button class="chip-button" type="button" data-action="delete" data-id="${stop.id}">Delete</button>
           ${stop.attachments.length ? `<span class="stat-pill"><strong>${stop.attachments.length}</strong> files</span>` : ""}
@@ -1761,13 +1802,14 @@ function renderBoard() {
 
   el.boardView.innerHTML = `
     <div class="board-grid">
-      <div class="route-map route-list-panel" aria-label="Trip places">
+      ${renderTripMapPanel(stops)}
+      <div class="route-list-panel" aria-label="Trip places">
         <div class="board-panel-heading">
           <div>
-            <h3>Places list</h3>
-            <p>Open the full stop order in Google Maps.</p>
+            <h3>Timeline pins</h3>
+            <p>Click a stop to select it. Addresses are used when available.</p>
           </div>
-          <button class="ghost-button" type="button" data-action="open-maps">Google Maps</button>
+          <button class="ghost-button" type="button" data-action="open-maps">Open Google Maps list</button>
         </div>
         <ol class="place-list">
           ${stops.map((stop, index) => renderPlaceListItem(stop, index)).join("")}
@@ -1781,17 +1823,59 @@ function renderBoard() {
   `;
 }
 
+function renderTripMapPanel(stops) {
+  const mappedStops = stops.filter((stop) => stop.location?.trim());
+  const selected = selectedStop();
+  const mapStop = selected?.location ? selected : mappedStops[0];
+  return `
+    <div class="route-map trip-map-panel" aria-label="Trip map">
+      <div class="board-panel-heading">
+        <div>
+          <h3>Map</h3>
+          <p>${mappedStops.length ? `${mappedStops.length} pinned ${mappedStops.length === 1 ? "place" : "places"}` : "Add locations to pin places."}</p>
+        </div>
+        <button class="ghost-button" type="button" data-action="open-maps">Open Google Maps list</button>
+      </div>
+      <div class="map-schematic">${routeSvg(stops)}</div>
+      ${mapStop ? `
+        <iframe
+          class="map-frame"
+          title="Map preview for ${escapeAttribute(mapStop.title)}"
+          loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade"
+          src="${escapeAttribute(googleMapsEmbedUrl(mapStop))}">
+        </iframe>
+      ` : ""}
+      <div class="map-pin-strip">
+        ${mappedStops.length
+          ? mappedStops.map((stop, index) => renderMapPin(stop, index)).join("")
+          : `<span>No address pins yet</span>`}
+      </div>
+    </div>
+  `;
+}
+
+function renderMapPin(stop, index) {
+  const meta = typeMeta[stop.type];
+  const selected = stop.id === state.trip.selectedId;
+  return `
+    <button class="map-pin ${selected ? "active" : ""}" type="button" data-action="select" data-id="${stop.id}">
+      <span style="background:${meta.color}">${index + 1}</span>
+      <strong>${escapeHtml(stop.title)}</strong>
+    </button>
+  `;
+}
+
 function renderPlaceListItem(stop, index) {
   const meta = typeMeta[stop.type];
   return `
-    <li class="place-item">
+    <li class="place-item" role="button" tabindex="0" data-action="select" data-id="${stop.id}" aria-label="Select ${escapeAttribute(stop.title)}">
       <span class="place-number" style="background:${meta.color}">${index + 1}</span>
       <div>
         <strong>${escapeHtml(stop.title)}</strong>
         ${stop.location ? `<em>${escapeHtml(stop.location)}</em>` : ""}
         <span>${formatDateTimeForZone(toUtc(stop), state.trip.destinationZone)} - ${durationLabel(stopDurationMinutes(stop))}</span>
       </div>
-      <button class="chip-button" type="button" data-action="select" data-id="${stop.id}">Select</button>
     </li>
   `;
 }
@@ -1823,8 +1907,8 @@ function renderSelectedCard() {
     </div>
     ${stop.location ? `<p class="selected-location">${escapeHtml(stop.location)}</p>` : ""}
     <div class="selected-meta">
-      <div><span>Iceland time</span><strong>${formatDateTimeForZone(toUtc(stop), state.trip.destinationZone)}</strong></div>
-      <div><span>US time</span><strong>${formatDateTimeForZone(toUtc(stop), state.trip.originZone)}</strong></div>
+      <div><span>${escapeHtml(zoneLabel(state.trip.destinationZone))}</span><strong>${formatDateTimeForZone(toUtc(stop), state.trip.destinationZone)}</strong></div>
+      <div><span>${escapeHtml(zoneLabel(state.trip.originZone))}</span><strong>${formatDateTimeForZone(toUtc(stop), state.trip.originZone)}</strong></div>
       <div><span>Length</span><strong>${durationLabel(stopDurationMinutes(stop))}</strong></div>
     </div>
     ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
@@ -1884,10 +1968,12 @@ function renderTimeNotes() {
   const selected = selectedStop() || sortedStops()[0];
   const delta = selected ? zoneDeltaLabel(toUtc(selected)) : zoneDeltaLabel();
   const firstFlight = sortedStops().find((stop) => stop.type === "flight");
+  const tripZone = zoneLabel(state.trip.destinationZone);
+  const homeZone = zoneLabel(state.trip.originZone);
   const notes = [
-    `Destination zone: ${state.trip.destinationZone}; paired US view: ${zoneLabel(state.trip.originZone)}.`,
-    selected ? `${selected.title} is shown as ${formatDateTimeForZone(toUtc(selected), state.trip.destinationZone)} in Iceland and ${formatDateTimeForZone(toUtc(selected), state.trip.originZone)} in US time.` : `Current offset: ${delta}.`,
-    firstFlight ? `Flight arrival can land on a different Iceland date than the US departure.` : `Add your flight first to anchor the date shift.`
+    `Trip zone: ${state.trip.destinationZone}; paired home view: ${homeZone}.`,
+    selected ? `${selected.title} is shown as ${formatDateTimeForZone(toUtc(selected), state.trip.destinationZone)} in ${tripZone} and ${formatDateTimeForZone(toUtc(selected), state.trip.originZone)} in ${homeZone}.` : `Current offset: ${delta}.`,
+    firstFlight ? `Flight arrivals can land on a different calendar date than departure when time zones shift.` : `Add your flight first to anchor any date shift.`
   ];
   el.timeNotes.innerHTML = notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("");
 }
@@ -2059,7 +2145,7 @@ function newTrip() {
   state.trip = normalizeTrip({
     name: name.trim() || "New Trip",
     originZone: state.trip.originZone,
-    destinationZone: "Atlantic/Reykjavik",
+    destinationZone: state.trip.destinationZone,
     activeView: "timeline",
     timeLens: "both",
     selectedId: null,
@@ -2271,7 +2357,7 @@ function exportIcs() {
       `DTEND:${icsDate(end)}`,
       `SUMMARY:${icsText(stop.title)}`,
       stop.location ? `LOCATION:${icsText(stop.location)}` : "",
-      `DESCRIPTION:${icsText(`${stop.notes || ""}\\nIceland: ${formatDateTimeForZone(start, state.trip.destinationZone)}\\nUS: ${formatDateTimeForZone(start, state.trip.originZone)}`)}`,
+      `DESCRIPTION:${icsText(`${stop.notes || ""}\\n${zoneLabel(state.trip.destinationZone)}: ${formatDateTimeForZone(start, state.trip.destinationZone)}\\n${zoneLabel(state.trip.originZone)}: ${formatDateTimeForZone(start, state.trip.originZone)}`)}`,
       "END:VEVENT"
     ].filter(Boolean));
   });
@@ -2357,6 +2443,10 @@ function openGoogleMapsList() {
 
 function stopMapQuery(stop) {
   return String(stop.location || stop.title || "").trim();
+}
+
+function googleMapsEmbedUrl(stop) {
+  return `https://www.google.com/maps?q=${encodeURIComponent(stopMapQuery(stop))}&output=embed`;
 }
 
 function readTripFromHash() {
@@ -2564,12 +2654,18 @@ function formatDateTimeForZone(date, timeZone) {
 }
 
 function timePair(stop) {
-  const date = toUtc(stop);
-  const origin = `${formatTimeForZone(date, state.trip.originZone)} US`;
-  const destination = `${formatTimeForZone(date, state.trip.destinationZone)} Iceland`;
+  const origin = `${formatStopTimeForZone(stop, state.trip.originZone)} ${zoneLabel(state.trip.originZone)}`;
+  const destination = `${formatStopTimeForZone(stop, state.trip.destinationZone)} ${zoneLabel(state.trip.destinationZone)}`;
   if (state.trip.timeLens === "origin") return origin;
   if (state.trip.timeLens === "destination") return destination;
   return `${destination}<br><span>${origin}</span>`;
+}
+
+function formatStopTimeForZone(stop, timeZone) {
+  const start = formatTimeForZone(toUtc(stop), timeZone);
+  if (state.trip.showEndTimes === false) return start;
+  const end = formatTimeForZone(toEndUtc(stop), timeZone);
+  return `${start}-${end}`;
 }
 
 function destinationHour(stop) {
@@ -2605,7 +2701,7 @@ function routeSvg(stops) {
   const path = points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ");
 
   return `
-    <svg class="route-art" viewBox="0 0 100 100" role="img" aria-label="Iceland route infographic">
+    <svg class="route-art" viewBox="0 0 100 100" role="img" aria-label="Trip route infographic">
       <defs>
         <linearGradient id="seaGradient" x1="0" x2="1" y1="0" y2="1">
           <stop offset="0" stop-color="#edf8f8" />
@@ -2667,7 +2763,7 @@ function zoneDeltaLabel(date = new Date()) {
   const destination = getTimeZoneOffset(date, state.trip.destinationZone) / 3600000;
   const delta = destination - origin;
   if (delta === 0) return "Same time";
-  return `Iceland ${Math.abs(delta)}h ${delta > 0 ? "ahead" : "behind"}`;
+  return `${zoneLabel(state.trip.destinationZone)} ${Math.abs(delta)}h ${delta > 0 ? "ahead" : "behind"}`;
 }
 
 function zoneLabel(zoneId) {
