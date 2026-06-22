@@ -327,14 +327,6 @@ function bindEvents() {
     });
   });
 
-  document.querySelectorAll("[data-lens]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.trip.timeLens = button.dataset.lens;
-      saveTrip();
-      render();
-    });
-  });
-
   document.addEventListener("click", (event) => {
     const calendarMode = event.target.closest("[data-calendar-mode]");
     if (calendarMode) {
@@ -743,7 +735,7 @@ function renderHeader() {
   el.tripSubtitle.textContent = `${stops.length} stops - ${range}`;
   el.workspaceTitle.textContent = state.trip.name || "Trip route, visually managed";
   el.workspaceMeta.textContent = stops.length
-    ? `${range} - Calendar and timeline shown in ${zoneLabel(state.trip.destinationZone)} with paired ${zoneLabel(state.trip.originZone)} conversions.`
+    ? `${range} - Timeline times use each stop's assigned time zone. Home and trip clocks stay available for reference.`
     : "Add locations, dates, times, notes, and files to start shaping the trip.";
   el.originZone.value = state.trip.originZone;
   el.destinationZone.value = state.trip.destinationZone;
@@ -1527,12 +1519,6 @@ function renderViews() {
     button.setAttribute("aria-selected", String(active));
   });
 
-  document.querySelectorAll("[data-lens]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.lens === state.trip.timeLens);
-    if (button.dataset.lens === "origin") button.textContent = zoneLabel(state.trip.originZone);
-    if (button.dataset.lens === "destination") button.textContent = zoneLabel(state.trip.destinationZone);
-  });
-
   ["timeline", "calendar", "board"].forEach((view) => {
     document.getElementById(`${view}View`).classList.toggle("active", state.trip.activeView === view);
   });
@@ -1900,6 +1886,7 @@ function renderSelectedCard() {
   }
 
   const meta = typeMeta[stop.type];
+  const stopZone = stop.zone || state.trip.destinationZone;
   el.selectedCard.innerHTML = `
     <div class="stop-card-header">
       <h2>${escapeHtml(stop.title)}</h2>
@@ -1907,8 +1894,7 @@ function renderSelectedCard() {
     </div>
     ${stop.location ? `<p class="selected-location">${escapeHtml(stop.location)}</p>` : ""}
     <div class="selected-meta">
-      <div><span>${escapeHtml(zoneLabel(state.trip.destinationZone))}</span><strong>${formatDateTimeForZone(toUtc(stop), state.trip.destinationZone)}</strong></div>
-      <div><span>${escapeHtml(zoneLabel(state.trip.originZone))}</span><strong>${formatDateTimeForZone(toUtc(stop), state.trip.originZone)}</strong></div>
+      <div><span>${escapeHtml(zoneLabel(stopZone))}</span><strong>${formatDateTimeForZone(toUtc(stop), stopZone)}</strong></div>
       <div><span>Length</span><strong>${durationLabel(stopDurationMinutes(stop))}</strong></div>
     </div>
     ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
@@ -1968,11 +1954,10 @@ function renderTimeNotes() {
   const selected = selectedStop() || sortedStops()[0];
   const delta = selected ? zoneDeltaLabel(toUtc(selected)) : zoneDeltaLabel();
   const firstFlight = sortedStops().find((stop) => stop.type === "flight");
-  const tripZone = zoneLabel(state.trip.destinationZone);
-  const homeZone = zoneLabel(state.trip.originZone);
+  const selectedZone = selected ? (selected.zone || state.trip.destinationZone) : state.trip.destinationZone;
   const notes = [
-    `Trip zone: ${state.trip.destinationZone}; paired home view: ${homeZone}.`,
-    selected ? `${selected.title} is shown as ${formatDateTimeForZone(toUtc(selected), state.trip.destinationZone)} in ${tripZone} and ${formatDateTimeForZone(toUtc(selected), state.trip.originZone)} in ${homeZone}.` : `Current offset: ${delta}.`,
+    `Timeline times use the time zone assigned to each stop.`,
+    selected ? `${selected.title} is scheduled as ${formatDateTimeForZone(toUtc(selected), selectedZone)} in ${zoneLabel(selectedZone)}.` : `Current offset: ${delta}.`,
     firstFlight ? `Flight arrivals can land on a different calendar date than departure when time zones shift.` : `Add your flight first to anchor any date shift.`
   ];
   el.timeNotes.innerHTML = notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("");
@@ -2446,7 +2431,7 @@ function stopMapQuery(stop) {
 }
 
 function googleMapsEmbedUrl(stop) {
-  return `https://www.google.com/maps?q=${encodeURIComponent(stopMapQuery(stop))}&output=embed`;
+  return `https://www.google.com/maps?q=${encodeURIComponent(stopMapQuery(stop))}&z=11&output=embed`;
 }
 
 function readTripFromHash() {
@@ -2654,11 +2639,8 @@ function formatDateTimeForZone(date, timeZone) {
 }
 
 function timePair(stop) {
-  const origin = `${formatStopTimeForZone(stop, state.trip.originZone)} ${zoneLabel(state.trip.originZone)}`;
-  const destination = `${formatStopTimeForZone(stop, state.trip.destinationZone)} ${zoneLabel(state.trip.destinationZone)}`;
-  if (state.trip.timeLens === "origin") return origin;
-  if (state.trip.timeLens === "destination") return destination;
-  return `${destination}<br><span>${origin}</span>`;
+  const stopZone = stop.zone || state.trip.destinationZone;
+  return `<strong>${escapeHtml(formatStopTimeForZone(stop, stopZone))}</strong><span>${escapeHtml(zoneLabel(stopZone))}</span>`;
 }
 
 function formatStopTimeForZone(stop, timeZone) {
@@ -2693,29 +2675,32 @@ function hourIsBusy(stop, hour) {
 }
 
 function routeSvg(stops) {
-  const points = stops.slice(0, 8).map((stop, index, arr) => {
-    const x = arr.length === 1 ? 50 : 10 + (index / (arr.length - 1)) * 80;
-    const y = 56 + Math.sin(index * 1.25) * 25;
+  const points = stops.slice(0, 10).map((stop, index, arr) => {
+    const progress = arr.length === 1 ? 0.5 : index / (arr.length - 1);
+    const x = 10 + progress * 80;
+    const y = 31 + Math.sin(index * 1.35) * 13 + Math.cos(progress * Math.PI) * 4;
     return { stop, x, y };
   });
   const path = points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ");
 
   return `
-    <svg class="route-art" viewBox="0 0 100 100" role="img" aria-label="Trip route infographic">
+    <svg class="route-art" viewBox="0 0 100 64" role="img" aria-label="Trip route infographic">
       <defs>
         <linearGradient id="seaGradient" x1="0" x2="1" y1="0" y2="1">
           <stop offset="0" stop-color="#edf8f8" />
           <stop offset="1" stop-color="#dcecee" />
         </linearGradient>
       </defs>
-      <rect width="100" height="100" rx="4" fill="url(#seaGradient)" />
-      <path d="M8 70 C18 45 35 38 48 49 C60 59 72 30 92 47 L92 84 L8 84 Z" fill="#ffffff" opacity="0.92" />
-      <path d="M12 78 C26 67 38 72 51 62 C68 49 78 63 90 55" fill="none" stroke="#b9d2d6" stroke-width="2" stroke-linecap="round" />
+      <rect width="100" height="64" rx="4" fill="url(#seaGradient)" />
+      <path d="M8 48 C17 31 31 26 43 35 C56 45 68 17 92 31 L92 57 L8 57 Z" fill="#ffffff" opacity="0.93" />
+      <path d="M12 53 C25 45 39 48 51 40 C66 29 78 43 90 36" fill="none" stroke="#b9d2d6" stroke-width="1.4" stroke-linecap="round" />
       <path class="route-line" d="${path}" />
       ${points
         .map(({ stop, x, y }, index) => `
-          <circle class="route-point ${stop.type}" cx="${x}" cy="${y}" r="${index === 0 ? 4.4 : 3.8}" />
-          <text x="${Math.min(88, Math.max(8, x - 5))}" y="${Math.max(13, y - 8)}">${escapeSvg(routeLabel(stop.title))}</text>
+          <g class="route-marker">
+            <circle class="route-point ${stop.type}" cx="${x}" cy="${y}" r="4.5" />
+            <text class="route-number" x="${x}" y="${y}">${index + 1}</text>
+          </g>
         `)
         .join("")}
     </svg>
@@ -2911,11 +2896,6 @@ function decodeBase64(value) {
   const binary = atob(padded);
   const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
   return new TextDecoder().decode(bytes);
-}
-
-function routeLabel(title) {
-  const parts = title.split(/\s+/).filter(Boolean);
-  return parts.slice(0, 2).join(" ").slice(0, 16);
 }
 
 function emptyState(title, body) {

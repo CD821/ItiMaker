@@ -11,7 +11,7 @@ A Vercel + Supabase-ready itinerary maker for planning shared trips across devic
 - Timeline with optional end-time display, calendar, and map-based trip-board views
 - Month, week, day, and custom range calendar modes
 - Google Maps route/list opening for all stop locations
-- Flexible paired timezone displays using browser-supported time zones
+- Flexible stop-level timezone displays using browser-supported time zones
 - Login/signup gate before trip access when Supabase is configured
 - Supabase Auth username/password sign-in
 - Cloud sync for shared devices
