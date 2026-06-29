@@ -135,6 +135,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function cacheElements() {
   [
+    "brandTitle",
     "tripSubtitle",
     "authGate",
     "authStatus",
@@ -155,6 +156,10 @@ function cacheElements() {
     "shareButton",
     "openMapsButton",
     "printButton",
+    "mobileMenuButton",
+    "closeMobileMenuButton",
+    "mobileDrawerOverlay",
+    "mobileAddStopButton",
     "cloudStatus",
     "cloudHint",
     "cloudAuthForm",
@@ -178,6 +183,8 @@ function cacheElements() {
     "timelineTimeRangeToggle",
     "openStopModalButton",
     "stopModal",
+    "stopDetailModal",
+    "stopDetailContent",
     "closeStopModalButton",
     "originZone",
     "destinationZone",
@@ -295,12 +302,28 @@ function bindEvents() {
   el.stopModal.addEventListener("click", (event) => {
     if (event.target === el.stopModal) closeStopModal();
   });
+  el.stopDetailModal.addEventListener("click", (event) => {
+    if (event.target === el.stopDetailModal) closeStopDetailModal();
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !el.stopModal.hidden) closeStopModal();
+    if (event.key === "Escape" && !el.stopDetailModal.hidden) closeStopDetailModal();
+    if (event.key === "Escape" && document.body.classList.contains("mobile-menu-open")) closeMobileMenu();
     if ((event.key === "Enter" || event.key === " ") && event.target.matches('[role="button"][data-action="select"]')) {
       event.preventDefault();
       event.target.click();
     }
+  });
+  el.mobileAddStopButton.addEventListener("click", () => {
+    resetForm(false);
+    openStopModal();
+  });
+  el.mobileMenuButton.addEventListener("click", toggleMobileMenu);
+  el.closeMobileMenuButton.addEventListener("click", closeMobileMenu);
+  el.mobileDrawerOverlay.addEventListener("click", closeMobileMenu);
+  window.addEventListener("resize", () => {
+    renderHeader();
+    if (!isMobileViewport()) closeMobileMenu();
   });
 
   el.cloudAuthForm.addEventListener("submit", (event) => {
@@ -371,10 +394,12 @@ function bindEvents() {
     const action = event.target.closest("[data-action]");
     if (!action) return;
     const id = action.dataset.id;
-    if (action.dataset.action === "select") selectStop(id);
+    if (action.dataset.action === "select") selectStop(id, { showDetailOnMobile: true });
     if (action.dataset.action === "edit") editStop(id);
     if (action.dataset.action === "delete") deleteStop(id);
     if (action.dataset.action === "open-maps") openGoogleMapsList();
+    if (action.dataset.action === "open-stop-maps") openStopInMaps(id);
+    if (action.dataset.action === "close-detail") closeStopDetailModal();
     if (action.dataset.action === "remove-draft-attachment") removeDraftAttachment(action.dataset.index);
   });
 
@@ -759,6 +784,7 @@ function renderHeader() {
     ? `${formatDateForZone(toUtc(first), state.trip.destinationZone, "short")} - ${formatDateForZone(toUtc(last), state.trip.destinationZone, "short")}`
     : "No dates yet";
 
+  el.brandTitle.textContent = isMobileViewport() ? state.trip.name || "Untitled Trip" : "Itinerary Studio";
   el.tripName.value = state.trip.name;
   el.tripName.disabled = !canEditTrip();
   el.tripSubtitle.textContent = `${stops.length} stops - ${range}`;
@@ -800,6 +826,7 @@ function renderCloudPanel() {
   el.archiveTripButton.disabled = cloud.syncing || !canManageAccess();
   el.deleteTripButton.disabled = cloud.syncing || !canManageAccess();
   el.openStopModalButton.disabled = !canEditTrip();
+  el.mobileAddStopButton.disabled = !canEditTrip();
   el.cloudUserLabel.textContent = displayUserName(cloud.user);
   el.cloudShareCode.textContent = state.trip.shareCode || "----";
   renderAccessPanel();
@@ -1837,6 +1864,9 @@ function renderStopRow(stop) {
   const meta = typeMeta[stop.type];
   const selected = stop.id === state.trip.selectedId;
   const canEdit = canEditTrip();
+  const mapsButton = stopMapQuery(stop)
+    ? `<button class="chip-button" type="button" data-action="open-stop-maps" data-id="${stop.id}">Open map</button>`
+    : "";
   return `
     <article class="stop-row">
       <span class="stop-dot" style="background:${meta.color}"></span>
@@ -1849,6 +1879,7 @@ function renderStopRow(stop) {
         ${stop.location ? `<p class="stop-location">${escapeHtml(stop.location)}</p>` : ""}
         ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
         <div class="stop-card-actions">
+          ${mapsButton}
           ${canEdit ? `
             <button class="chip-button" type="button" data-action="edit" data-id="${stop.id}">Edit</button>
             <button class="chip-button" type="button" data-action="delete" data-id="${stop.id}">Delete</button>
@@ -2067,12 +2098,11 @@ function renderBoard() {
 
   el.boardView.innerHTML = `
     <div class="board-grid">
-      ${renderTripMapPanel(stops)}
       <div class="route-list-panel" aria-label="Trip places">
         <div class="board-panel-heading">
           <div>
             <h3>Timeline pins</h3>
-            <p>Click a stop to select it. Addresses are used when available.</p>
+            <p>Open a single stop or the full route in Google Maps.</p>
           </div>
           <button class="ghost-button" type="button" data-action="open-maps">Open Google Maps list</button>
         </div>
@@ -2133,6 +2163,9 @@ function renderMapPin(stop, index) {
 
 function renderPlaceListItem(stop, index) {
   const meta = typeMeta[stop.type];
+  const mapsButton = stopMapQuery(stop)
+    ? `<button class="chip-button place-map-button" type="button" data-action="open-stop-maps" data-id="${stop.id}">Open map</button>`
+    : "";
   return `
     <li class="place-item" role="button" tabindex="0" data-action="select" data-id="${stop.id}" aria-label="Select ${escapeAttribute(stop.title)}">
       <span class="place-number" style="background:${meta.color}">${index + 1}</span>
@@ -2141,6 +2174,7 @@ function renderPlaceListItem(stop, index) {
         ${stop.location ? `<em>${escapeHtml(stop.location)}</em>` : ""}
         <span>${formatDateTimeForZone(toUtc(stop), state.trip.destinationZone)} - ${durationLabel(stopDurationMinutes(stop))}</span>
       </div>
+      ${mapsButton}
     </li>
   `;
 }
@@ -2289,6 +2323,90 @@ function renderAttachment(attachment, removable, stopTitle = "", index = null) {
   `;
 }
 
+function isMobileViewport() {
+  return window.matchMedia("(max-width: 560px)").matches;
+}
+
+function toggleMobileMenu() {
+  if (document.body.classList.contains("mobile-menu-open")) {
+    closeMobileMenu();
+  } else {
+    openMobileMenu();
+  }
+}
+
+function openMobileMenu() {
+  document.body.classList.add("mobile-menu-open");
+  el.mobileDrawerOverlay.hidden = false;
+  el.mobileMenuButton.setAttribute("aria-expanded", "true");
+}
+
+function closeMobileMenu() {
+  document.body.classList.remove("mobile-menu-open");
+  el.mobileDrawerOverlay.hidden = true;
+  el.mobileMenuButton.setAttribute("aria-expanded", "false");
+}
+
+function openStopDetailModal(id) {
+  const stop = state.trip.stops.find((item) => item.id === id);
+  if (!stop) return;
+  el.stopDetailContent.innerHTML = renderStopDetail(stop);
+  el.stopDetailModal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeStopDetailModal() {
+  el.stopDetailModal.hidden = true;
+  el.stopDetailContent.innerHTML = "";
+  document.body.classList.remove("modal-open");
+}
+
+function renderStopDetail(stop) {
+  const meta = typeMeta[stop.type];
+  const stopZone = stop.zone || state.trip.destinationZone;
+  const canEdit = canEditTrip();
+  const mapsButton = stopMapQuery(stop)
+    ? `<button class="ghost-button" type="button" data-action="open-stop-maps" data-id="${stop.id}">Open in Google Maps</button>`
+    : "";
+  const editControls = canEdit
+    ? `<button class="ghost-button" type="button" data-action="edit" data-id="${stop.id}">Edit</button>
+       <button class="ghost-button danger-button" type="button" data-action="delete" data-id="${stop.id}">Delete</button>`
+    : `<span class="stat-pill">View only</span>`;
+  const attachmentList = stop.attachments.length
+    ? `<div class="attachment-list compact">${stop.attachments.map((attachment) => renderAttachment(attachment, false, stop.title)).join("")}</div>`
+    : "";
+
+  return `
+    <div class="modal-heading stop-detail-heading">
+      <div>
+        <span>${escapeHtml(meta.label)} details</span>
+        <h2 id="stopDetailTitle">${escapeHtml(stop.title)}</h2>
+      </div>
+      <button class="icon-button" type="button" data-action="close-detail" title="Close details" aria-label="Close details">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 6l12 12M18 6 6 18" />
+        </svg>
+      </button>
+    </div>
+    <div class="stop-detail-body">
+      <span class="type-chip" style="background:${meta.color}">${escapeHtml(meta.label)}</span>
+      <div class="selected-meta">
+        <div><span>Start</span><strong>${escapeHtml(formatDateTimeForZone(toUtc(stop), stopZone))}</strong></div>
+        <div><span>Finish</span><strong>${escapeHtml(formatDateTimeForZone(toEndUtc(stop), stopZone))}</strong></div>
+        <div><span>Time zone</span><strong>${escapeHtml(zoneLabel(stopZone))}</strong></div>
+        <div><span>Length</span><strong>${escapeHtml(durationLabel(stopDurationMinutes(stop)))}</strong></div>
+      </div>
+      ${stop.location ? `<p class="selected-location">${escapeHtml(stop.location)}</p>` : ""}
+      ${stop.notes ? `<p>${escapeHtml(stop.notes)}</p>` : ""}
+      ${attachmentList}
+    </div>
+    <div class="stop-detail-actions">
+      ${mapsButton}
+      ${editControls}
+    </div>
+  `;
+}
+
 function saveStopFromForm() {
   if (!canEditTrip()) {
     showToast("This trip is view-only for your account.");
@@ -2369,6 +2487,7 @@ function editStop(id) {
   const stop = state.trip.stops.find((item) => item.id === id);
   if (!stop) return;
 
+  closeStopDetailModal();
   state.editingId = id;
   state.trip.selectedId = id;
   state.draftAttachments = [];
@@ -2391,12 +2510,15 @@ function editStop(id) {
   el.stopTitle.focus();
 }
 
-function selectStop(id) {
+function selectStop(id, options = {}) {
   if (!state.trip.stops.some((stop) => stop.id === id)) return;
   state.trip.selectedId = id;
   state.activeDay = destinationDateIso(selectedStop());
   saveTrip();
   render();
+  if (options.showDetailOnMobile && isMobileViewport()) {
+    openStopDetailModal(id);
+  }
 }
 
 function deleteStop(id) {
@@ -2412,6 +2534,7 @@ function deleteStop(id) {
   if (state.trip.selectedId === id) {
     state.trip.selectedId = state.trip.stops[0]?.id || null;
   }
+  closeStopDetailModal();
   saveTrip();
   render();
   showToast("Stop deleted.");
@@ -2718,6 +2841,17 @@ function openGoogleMapsList() {
 
   window.open(url, "_blank", "noopener,noreferrer");
   showToast("Opening places in Google Maps.");
+}
+
+function openStopInMaps(id) {
+  const stop = state.trip.stops.find((item) => item.id === id);
+  if (!stop || !stopMapQuery(stop)) {
+    showToast("This stop needs an address or name first.");
+    return;
+  }
+  const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stopMapQuery(stop))}`;
+  window.open(url, "_blank", "noopener,noreferrer");
+  showToast("Opening this stop in Google Maps.");
 }
 
 function stopMapQuery(stop) {

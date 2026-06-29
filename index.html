@@ -72,10 +72,17 @@
             </svg>
           </span>
           <span>
-            <strong>Itinerary Studio</strong>
+            <strong id="brandTitle">Itinerary Studio</strong>
             <small id="tripSubtitle">Flexible trip planner</small>
           </span>
         </a>
+        <button class="icon-button mobile-menu-button" id="mobileMenuButton" type="button" title="Trip settings" aria-label="Open trip settings" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h16" />
+            <path d="M4 12h16" />
+            <path d="M4 17h16" />
+          </svg>
+        </button>
       </header>
 
       <nav class="top-actions" aria-label="Trip actions">
@@ -130,8 +137,28 @@
           </button>
       </nav>
 
+      <button class="mobile-add-stop-fab" id="mobileAddStopButton" type="button">
+        <span>Add stop</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+
+      <div class="mobile-drawer-overlay" id="mobileDrawerOverlay" hidden></div>
+
       <main class="studio" id="app">
         <aside class="panel editor-panel" aria-label="Itinerary editor">
+          <div class="mobile-panel-heading">
+            <div>
+              <span>Trip menu</span>
+              <strong>Settings and sharing</strong>
+            </div>
+            <button class="icon-button" id="closeMobileMenuButton" type="button" title="Close trip settings" aria-label="Close trip settings">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </div>
           <div class="trip-cover">
             <img src="assets/iceland-panorama.png" alt="" />
             <div class="trip-cover-text">
@@ -407,6 +434,12 @@
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop stop-detail-backdrop" id="stopDetailModal" hidden>
+      <div class="modal-panel stop-detail-panel" role="dialog" aria-modal="true" aria-labelledby="stopDetailTitle">
+        <div class="stop-detail-content" id="stopDetailContent"></div>
       </div>
     </div>
 
